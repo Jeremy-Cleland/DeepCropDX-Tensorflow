@@ -1,0 +1,75 @@
+# src/config/config.yaml (additions for the new features)
+
+project:
+  name: Plant Disease Detection
+  description: Deep learning models for detecting diseases in plants
+  version: 1.0.0
+
+# Add global random seed for reproducibility
+seed: 42
+
+paths:
+  data: 
+    raw: data/raw
+    processed: data/processed
+  models: model_registry
+  logs: trials
+
+training:
+  batch_size: 128
+  epochs: 50
+  learning_rate: 0.001
+  optimizer: adam
+  loss: categorical_crossentropy
+  metrics: [accuracy, AUC, Precision, Recall]
+  early_stopping:
+    enabled: true
+    patience: 10
+    monitor: val_loss
+  validation_split: 0.2
+  test_split: 0.1
+  progress_bar: true
+
+  clip_norm: 1.0 
+  clip_value: null
+
+hardware:
+  use_metal: true
+  mixed_precision: true
+  memory_growth: true
+  num_parallel_calls: 16
+  prefetch_buffer_size: 8
+
+logging:
+  level: INFO
+  tensorboard: true
+  separate_loggers: true
+
+reporting:
+  generate_plots: true
+  save_confusion_matrix: true
+  save_roc_curves: true
+  save_precision_recall: true
+  generate_html_report: true
+
+data_augmentation:
+  enabled: true
+  rotation_range: 20
+  width_shift_range: 0.2
+  height_shift_range: 0.2
+  shear_range: 0.2
+  zoom_range: 0.2
+  horizontal_flip: true
+  vertical_flip: false
+  fill_mode: "nearest"
+
+# Add data validation settings
+data_validation:
+  enabled: true
+  min_samples_per_class: 5
+  max_class_imbalance_ratio: 10.0
+  min_image_dimensions: [32, 32]
+  check_corrupt_images: true
+  check_duplicates: false
+  max_workers: 4
+  max_images_to_check: 1000 
