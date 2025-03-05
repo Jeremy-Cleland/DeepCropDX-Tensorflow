@@ -32,6 +32,8 @@ class SpatialAttention(tf.keras.layers.Layer):
     def __init__(self, kernel_size=7, **kwargs):
         super(SpatialAttention, self).__init__(**kwargs)
         self.kernel_size = kernel_size
+        self.concat_layer = tf.keras.layers.Concatenate(axis=-1)
+        self.multiply_layer = tf.keras.layers.Multiply()
 
     def build(self, input_shape):
         self.conv = tf.keras.layers.Conv2D(
@@ -43,22 +45,30 @@ class SpatialAttention(tf.keras.layers.Layer):
             kernel_initializer="he_normal",
             use_bias=False,
         )
+        self.avg_pool = tf.keras.layers.Lambda(
+            lambda x: tf.reduce_mean(x, axis=-1, keepdims=True),
+            name="channel_avg_pool"
+        )
+        self.max_pool = tf.keras.layers.Lambda(
+            lambda x: tf.reduce_max(x, axis=-1, keepdims=True),
+            name="channel_max_pool"
+        )
         super(SpatialAttention, self).build(input_shape)
 
     def call(self, inputs):
         # Average pooling along channel axis
-        avg_pool = tf.reduce_mean(inputs, axis=-1, keepdims=True)
+        avg_pool = self.avg_pool(inputs)
         # Max pooling along channel axis
-        max_pool = tf.reduce_max(inputs, axis=-1, keepdims=True)
+        max_pool = self.max_pool(inputs)
 
         # Concatenate both features
-        concat = tf.concat([avg_pool, max_pool], axis=-1)
+        concat = self.concat_layer([avg_pool, max_pool])
 
         # Apply convolution
         spatial = self.conv(concat)
 
         # Apply attention
-        output = inputs * spatial
+        output = self.multiply_layer([inputs, spatial])
 
         return output
 
@@ -74,10 +84,18 @@ class ChannelAttention(tf.keras.layers.Layer):
     def __init__(self, ratio=16, **kwargs):
         super(ChannelAttention, self).__init__(**kwargs)
         self.ratio = ratio
+        self.multiply_layer = tf.keras.layers.Multiply()
 
     def build(self, input_shape):
+        self.input_rank = len(input_shape)
         channels = input_shape[-1]
-        self.gap = tf.keras.layers.GlobalAveragePooling2D()
+        
+        # For 4D inputs (with spatial dimensions)
+        if self.input_rank == 4:
+            self.gap = tf.keras.layers.GlobalAveragePooling2D()
+            self.reshape = tf.keras.layers.Reshape((1, 1, channels))
+        
+        # FC layers for attention
         self.dense1 = tf.keras.layers.Dense(
             channels // self.ratio,
             activation="relu",
@@ -92,22 +110,32 @@ class ChannelAttention(tf.keras.layers.Layer):
             use_bias=True,
             bias_initializer="zeros",
         )
+        
         super(ChannelAttention, self).build(input_shape)
 
     def call(self, inputs):
-        # Global average pooling
-        x = self.gap(inputs)
-
-        # MLP with bottleneck
-        x = self.dense1(x)
-        x = self.dense2(x)
-
-        # Reshape to match the input tensor's shape
-        x = tf.reshape(x, [-1, 1, 1, tf.shape(inputs)[-1]])
-
-        # Apply attention
-        output = inputs * x
-
+        # Handle different input shapes
+        if self.input_rank == 4:
+            # Input has spatial dimensions, apply pooling
+            x = self.gap(inputs)
+            
+            # MLP with bottleneck
+            x = self.dense1(x)
+            x = self.dense2(x)
+            
+            # Reshape for broadcasting
+            x = self.reshape(x)
+            
+            # Apply attention
+            output = self.multiply_layer([inputs, x])
+        else:
+            # Input already pooled (2D), just apply FC layers
+            x = self.dense1(inputs)
+            x = self.dense2(x)
+            
+            # Element-wise multiplication for 2D inputs
+            output = self.multiply_layer([inputs, x])
+            
         return output
 
     def get_config(self):
@@ -125,19 +153,29 @@ class CBAMBlock(tf.keras.layers.Layer):
         self.kernel_size = kernel_size
 
     def build(self, input_shape):
+        self.input_rank = len(input_shape)
         self.channel_attention = ChannelAttention(ratio=self.ratio)
-        self.spatial_attention = SpatialAttention(kernel_size=self.kernel_size)
+        
+        # Only apply spatial attention if we have spatial dimensions
+        if self.input_rank == 4:
+            self.spatial_attention = SpatialAttention(kernel_size=self.kernel_size)
+            
         super(CBAMBlock, self).build(input_shape)
 
     def call(self, inputs):
         # Channel attention
         x = self.channel_attention(inputs)
 
-        # Spatial attention
-        x = self.spatial_attention(x)
+        # Spatial attention only if we have spatial dimensions
+        if self.input_rank == 4:
+            x = self.spatial_attention(x)
 
         return x
 
+    def compute_output_shape(self, input_shape):
+        # Output shape is the same as input shape
+        return input_shape
+        
     def get_config(self):
         config = super(CBAMBlock, self).get_config()
         config.update({"ratio": self.ratio, "kernel_size": self.kernel_size})
@@ -157,6 +195,10 @@ class SEBlock(tf.keras.layers.Layer):
 
     def call(self, inputs):
         return self.channel_attention(inputs)
+        
+    def compute_output_shape(self, input_shape):
+        # Output shape is the same as input shape
+        return input_shape
 
     def get_config(self):
         config = super(SEBlock, self).get_config()
@@ -186,13 +228,17 @@ def add_attention_to_model(model, attention_type="se", ratio=16, kernel_size=7):
     else:
         raise ValueError(f"Unsupported attention type: {attention_type}")
 
-    # Apply attention to the output of the model
-    x = attention_layer(model.output)
+    # Extract the base model's input and output
+    inputs = model.input
+    
+    # Apply attention to the model's output
+    x = model.output
+    outputs = attention_layer(x)
 
     # Create a new model
-    from tensorflow.keras import Model
+    from tensorflow.keras.models import Model
 
-    enhanced_model = Model(inputs=model.input, outputs=x)
+    enhanced_model = Model(inputs=inputs, outputs=outputs)
 
     return enhanced_model
 
@@ -229,38 +275,8 @@ def squeeze_and_excitation_block(input_tensor, ratio=16):
     Returns:
         Output tensor with SE applied
     """
-    channels = K.int_shape(input_tensor)[-1]
-
-    # Squeeze operation (global average pooling)
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # Already pooled, use as is
-        x = input_tensor
-    else:
-        # Still has spatial dimensions, apply pooling
-        x = GlobalAveragePooling2D()(input_tensor)
-
-    # Excitation operation (two FC layers with bottleneck)
-    x = Dense(channels // ratio, activation="relu")(x)
-    x = Dense(channels, activation="sigmoid")(x)
-
-    # Scale the input tensor
-    x = Reshape((1, 1, channels))(x)
-    
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # For already pooled input, we need to reshape both tensors to be compatible
-        input_reshaped = Reshape((1, 1, channels))(input_tensor)
-        x = multiply([input_reshaped, x])
-        # Flatten back to match original shape
-        x = Flatten()(x)
-    else:
-        # For spatial inputs, apply scaling as usual
-        x = multiply([input_tensor, x])
-
-    return x
+    # Use the SEBlock layer directly
+    return SEBlock(ratio=ratio)(input_tensor)
 
 
 class ResidualAttention(tf.keras.layers.Layer):
@@ -271,19 +287,32 @@ class ResidualAttention(tf.keras.layers.Layer):
     residual connection to maintain gradient flow.
     """
 
-    def __init__(self, channels, reduction=16):
+    def __init__(self, reduction=16, **kwargs):
         """
         Initialize the Residual Attention module.
 
         Args:
-            channels: Number of input channels
             reduction: Reduction ratio for the bottleneck
         """
-        super(ResidualAttention, self).__init__()
-        self.avg_pool = GlobalAveragePooling2D()
-        self.dense1 = Dense(channels // reduction, activation="relu")
-        self.dense2 = Dense(channels, activation="sigmoid")
-        self.reshape = Reshape((1, 1, channels))
+        super(ResidualAttention, self).__init__(**kwargs)
+        self.reduction = reduction
+        self.multiply_layer = tf.keras.layers.Multiply()
+
+    def build(self, input_shape):
+        channels = input_shape[-1]
+        self.avg_pool = tf.keras.layers.GlobalAveragePooling2D()
+        self.dense1 = tf.keras.layers.Dense(
+            channels // self.reduction, 
+            activation="relu",
+            kernel_initializer="he_normal"
+        )
+        self.dense2 = tf.keras.layers.Dense(
+            channels, 
+            activation="sigmoid",
+            kernel_initializer="he_normal"
+        )
+        self.reshape = tf.keras.layers.Reshape((1, 1, channels))
+        super(ResidualAttention, self).build(input_shape)
 
     def call(self, inputs):
         """
@@ -295,12 +324,16 @@ class ResidualAttention(tf.keras.layers.Layer):
         Returns:
             Output tensor with attention applied
         """
-        b, h, w, c = inputs.shape
         y = self.avg_pool(inputs)
         y = self.dense1(y)
         y = self.dense2(y)
         y = self.reshape(y)
-        return inputs * y
+        return self.multiply_layer([inputs, y])
+        
+    def get_config(self):
+        config = super(ResidualAttention, self).get_config()
+        config.update({"reduction": self.reduction})
+        return config
 
 
 class ECABlock(tf.keras.layers.Layer):
@@ -311,16 +344,16 @@ class ECABlock(tf.keras.layers.Layer):
     1D convolutions instead of fully connected layers.
     """
 
-    def __init__(self, kernel_size=3):
+    def __init__(self, kernel_size=3, **kwargs):
         """
         Initialize the ECA block.
 
         Args:
             kernel_size: Size of the 1D convolution kernel
         """
-        super(ECABlock, self).__init__()
+        super(ECABlock, self).__init__(**kwargs)
         self.kernel_size = kernel_size
-        self.avg_pool = GlobalAveragePooling2D()
+        self.multiply_layer = tf.keras.layers.Multiply()
 
     def build(self, input_shape):
         """
@@ -330,9 +363,13 @@ class ECABlock(tf.keras.layers.Layer):
             input_shape: Shape of the input tensor
         """
         self.channels = input_shape[-1]
+        self.avg_pool = tf.keras.layers.GlobalAveragePooling2D()
         self.conv = tf.keras.layers.Conv1D(
             filters=1, kernel_size=self.kernel_size, padding="same", use_bias=False
         )
+        self.reshape_1 = tf.keras.layers.Reshape((1, self.channels))
+        self.activation = tf.keras.layers.Activation('sigmoid')
+        self.reshape_2 = tf.keras.layers.Reshape((1, 1, self.channels))
         super(ECABlock, self).build(input_shape)
 
     def call(self, inputs):
@@ -345,34 +382,28 @@ class ECABlock(tf.keras.layers.Layer):
         Returns:
             Output tensor with ECA applied
         """
-        # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-        input_shape = tf.keras.backend.int_shape(inputs)
+        # Global average pooling
+        y = self.avg_pool(inputs)
         
-        if len(input_shape) == 2:
-            # Already pooled, use as is
-            y = inputs
-        else:
-            # Global average pooling
-            y = self.avg_pool(inputs)
-
-        # Reshape to [batch, channels, 1]
-        y = tf.reshape(y, [-1, 1, self.channels])
-
+        # Reshape to [batch, 1, channels]
+        y = self.reshape_1(y)
+        
         # Apply 1D convolution
         y = self.conv(y)
-
-        # Reshape and apply sigmoid activation
-        y = tf.reshape(y, [-1, self.channels])
-        y = tf.nn.sigmoid(y)
-
-        if len(input_shape) == 2:
-            # For already pooled input, multiply directly
-            return inputs * y
-        else:
-            # Reshape to [batch, 1, 1, channels] for broadcasting
-            y = tf.reshape(y, [-1, 1, 1, self.channels])
-            # Scale the input tensor
-            return inputs * y
+        
+        # Apply sigmoid activation
+        y = self.activation(y)
+        
+        # Reshape for broadcasting
+        y = self.reshape_2(y)
+        
+        # Apply attention
+        return self.multiply_layer([inputs, y])
+        
+    def get_config(self):
+        config = super(ECABlock, self).get_config()
+        config.update({"kernel_size": self.kernel_size})
+        return config
 
 
 def spatial_attention_block(input_tensor):
@@ -385,27 +416,8 @@ def spatial_attention_block(input_tensor):
     Returns:
         Output tensor with spatial attention applied
     """
-    # Check if input has spatial dimensions
-    input_shape = tf.keras.backend.int_shape(input_tensor)
-    
-    # If input is already flattened (no spatial dimensions), return as is
-    if len(input_shape) == 2:
-        return input_tensor
-        
-    # Compute channel-wise average and max pooling
-    avg_pool = tf.reduce_mean(input_tensor, axis=-1, keepdims=True)
-    max_pool = tf.reduce_max(input_tensor, axis=-1, keepdims=True)
-
-    # Concatenate the pooled features
-    concat = tf.concat([avg_pool, max_pool], axis=-1)
-
-    # Apply convolution to generate spatial attention map
-    spatial_map = Conv2D(
-        filters=1, kernel_size=7, padding="same", activation="sigmoid"
-    )(concat)
-
-    # Apply spatial attention
-    return multiply([input_tensor, spatial_map])
+    # Use the SpatialAttention layer directly
+    return SpatialAttention(kernel_size=7)(input_tensor)
 
 
 def cbam_block(input_tensor, ratio=16):
@@ -421,46 +433,9 @@ def cbam_block(input_tensor, ratio=16):
     Returns:
         Output tensor with CBAM applied
     """
-    # Apply channel attention similar to SE block
-    channels = K.int_shape(input_tensor)[-1]
-
-    # Channel attention
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # Already pooled, use as is
-        avg_pool = input_tensor
-        max_pool = input_tensor  # For already pooled data, we use the same values
-    else:
-        # Still has spatial dimensions, apply pooling
-        avg_pool = GlobalAveragePooling2D()(input_tensor)
-        max_pool = tf.reduce_max(input_tensor, axis=[1, 2])
-
-    avg_pool = Dense(channels // ratio, activation="relu")(avg_pool)
-    avg_pool = Dense(channels, activation="linear")(avg_pool)
-
-    max_pool = Dense(channels // ratio, activation="relu")(max_pool)
-    max_pool = Dense(channels, activation="linear")(max_pool)
-
-    channel_attention = tf.nn.sigmoid(avg_pool + max_pool)
-    channel_attention = Reshape((1, 1, channels))(channel_attention)
-    
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # For already pooled input, we need to reshape both tensors to be compatible
-        input_reshaped = Reshape((1, 1, channels))(input_tensor)
-        channel_refined = multiply([input_reshaped, channel_attention])
-        # Flatten back to match original shape
-        channel_refined = Flatten()(channel_refined)
-    else:
-        # For spatial inputs, apply scaling as usual
-        channel_refined = multiply([input_tensor, channel_attention])
-
-    # Spatial attention
-    spatial_attention = spatial_attention_block(channel_refined)
-
-    return spatial_attention
+    # Use the full CBAMBlock Keras layer instead of functional API
+    cbam = CBAMBlock(ratio=ratio)(input_tensor)
+    return cbam
 
 
 class PyramidPoolingModule(tf.keras.layers.Layer):
@@ -715,31 +690,22 @@ def create_resnet_with_attention(
     else:
         raise ValueError(f"Unsupported model name: {base_model_name}")
 
-    # Define where to add CBAM attention (after each residual block)
-    attention_indices = []
-    for i, layer in enumerate(base_model.layers):
-        if "add" in layer.name.lower():  # Find residual connections
-            attention_indices.append(i)
-
-    # Build the model with attention
-    inputs = base_model.input
-    x = inputs
-
-    # Process through base model and add attention after each residual block
-    for i, layer in enumerate(base_model.layers):
-        x = layer(x)
-        if i in attention_indices:
-            x = cbam_block(x)
-
-    # Classifier head
-    x = GlobalAveragePooling2D()(x)
-    x = BatchNormalization()(x)
-    x = Dense(512, activation="relu")(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    outputs = Dense(num_classes, activation="softmax")(x)
+    # We'll use a different approach instead of iterating through layers
+    # Get base model features and add attention mechanism to the end
+    features = base_model.output
+    
+    # Add CBAM attention mechanism
+    attention_features = CBAMBlock()(features)
+    
+    # Add classification head
+    x = tf.keras.layers.GlobalAveragePooling2D()(attention_features)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dense(512, activation="relu")(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
 
     # Create and return the model
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
 
     return model

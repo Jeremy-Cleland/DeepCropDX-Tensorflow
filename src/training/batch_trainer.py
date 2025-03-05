@@ -15,7 +15,12 @@ from src.config.config import get_paths
 from src.utils.logger import Logger
 from src.utils.report_generator import ReportGenerator
 from src.training.model_trainer import train_model
-from src.utils.memory_utils import clean_memory, log_memory_usage, memory_monitoring_decorator
+from src.utils.memory_utils import (
+    clean_memory,
+    log_memory_usage,
+    memory_monitoring_decorator,
+)
+from ..utils.memory_utils import optimize_memory_use
 
 
 class BatchTrainer:
@@ -23,7 +28,7 @@ class BatchTrainer:
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize the batch trainer
-        
+
         Args:
             config: Configuration dictionary
         """
@@ -53,13 +58,13 @@ class BatchTrainer:
         project_info = self.config.get("project", {})
         project_name = project_info.get("name", "Plant Disease Detection")
         project_version = project_info.get("version", "1.0.0")
-        
+
         self.batch_logger.log_info(f"Starting {project_name} v{project_version}")
         self.batch_logger.log_config(self.config)
 
     def set_models_to_train(self, models: List[str]) -> None:
         """Set the list of models to train in this batch.
-        
+
         Args:
             models: List of model names to train
         """
@@ -70,7 +75,7 @@ class BatchTrainer:
             )
 
     def run_batch_training(
-        self, 
+        self,
         data_loader: Any,
         model_factory: Any,
         train_data: tf.data.Dataset,
@@ -81,17 +86,17 @@ class BatchTrainer:
         attention_type: Optional[str] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Run batch training for all specified models.
-        
+
         Args:
             data_loader: DataLoader instance
-            model_factory: ModelFactory instance 
+            model_factory: ModelFactory instance
             train_data: Training dataset
             val_data: Validation dataset
             test_data: Test dataset (optional)
             class_names: Dictionary mapping class indices to names
             resume: Whether to resume training from latest checkpoint
             attention_type: Type of attention mechanism to use (optional)
-            
+
         Returns:
             Dictionary of results for each model
         """
@@ -100,19 +105,31 @@ class BatchTrainer:
         self.successful_models = 0
         self.failed_models = 0
 
+        # Optimize memory before batch training begins
+        optimize_memory_use()
+        self.batch_logger.log_info("Memory optimized before batch training")
+
         # Train all specified models
-        for model_name in (model_pbar := tqdm(self.models_to_train, desc="Models", position=0)):
+        for model_name in (
+            model_pbar := tqdm(self.models_to_train, desc="Models", position=0)
+        ):
             model_pbar.set_description(f"Training {model_name}")
 
+            # Optimize memory before each model training
+            optimize_memory_use()
+            self.batch_logger.log_info(
+                f"Memory optimized before training model: {model_name}"
+            )
+
             model_start_time = time.time()
-            
+
             # Clean memory before training each model
             clean_memory(clean_gpu=True)
-            
+
             # Log memory usage before training
             self.batch_logger.log_info(f"Starting training for model: {model_name}")
             log_memory_usage(prefix=f"Before training {model_name}: ")
-            
+
             success, metrics = train_model(
                 model_name,
                 self.config,
@@ -126,10 +143,10 @@ class BatchTrainer:
                 resume=resume,
                 attention_type=attention_type,
             )
-            
+
             # Log memory usage after training
             log_memory_usage(prefix=f"After training {model_name}: ")
-            
+
             model_time = time.time() - model_start_time
 
             self.results[model_name] = metrics
@@ -152,21 +169,27 @@ class BatchTrainer:
                 f"Time: {model_time:.2f}s, Accuracy: {accuracy:.4f}"
             )
 
+            # Optimize memory after each model is trained
+            optimize_memory_use()
+            self.batch_logger.log_info(
+                f"Memory cleaned after training model: {model_name}"
+            )
+
         return self.results
 
     def generate_comparison_report(self) -> Optional[str]:
         """Generate a comparison report for all successfully trained models.
-        
+
         Returns:
             Path to the generated report, or None if no report was generated
         """
         # Don't generate a report if there's only one model or no successful models
         if len(self.results) <= 1 or self.successful_models == 0:
             return None
-            
+
         if not self.config.get("reporting", {}).get("generate_html_report", True):
             return None
-            
+
         try:
             comparison_data = []
             for model_name, metrics in self.results.items():
@@ -184,18 +207,18 @@ class BatchTrainer:
                         f"Model comparison report generated at {comparison_path}"
                     )
                 return comparison_path
-                
+
         except Exception as e:
             error_msg = f"Error generating comparison report: {e}"
             print(error_msg)
             if self.batch_logger:
                 self.batch_logger.log_error(error_msg)
-                
+
         return None
 
     def save_batch_summary(self, total_time: float) -> None:
         """Save batch training summary metrics.
-        
+
         Args:
             total_time: Total time spent on batch training in seconds
         """
@@ -230,7 +253,7 @@ class BatchTrainer:
 
         # Save final batch metrics
         self.batch_logger.save_final_metrics(batch_metrics)
-        
+
     def cleanup_resources(self) -> None:
         """
         Clean up resources after batch training to prevent memory leaks.
@@ -239,27 +262,31 @@ class BatchTrainer:
         # Log memory stats before cleanup
         self.batch_logger.log_info("Starting resource cleanup...")
         before_cleanup = log_memory_usage(prefix="Before cleanup: ")
-        
+
         # Clean TensorFlow session and force garbage collection
         clean_memory(clean_gpu=True)
-        
+
         # Release large objects
-        if hasattr(self, 'results') and self.results:
+        if hasattr(self, "results") and self.results:
             # Keep basic info but release any large data
             for model_name in self.results:
-                if 'model' in self.results[model_name]:
-                    del self.results[model_name]['model']
-                if 'history' in self.results[model_name]:
+                if "model" in self.results[model_name]:
+                    del self.results[model_name]["model"]
+                if "history" in self.results[model_name]:
                     # Retain just the final epoch values
-                    history = self.results[model_name]['history']
-                    self.results[model_name]['history'] = {k: [v[-1]] for k, v in history.items() if isinstance(v, list)}
-        
+                    history = self.results[model_name]["history"]
+                    self.results[model_name]["history"] = {
+                        k: [v[-1]] for k, v in history.items() if isinstance(v, list)
+                    }
+
         # Run another garbage collection pass
         gc.collect()
-        
+
         # Log memory stats after cleanup
         after_cleanup = log_memory_usage(prefix="After cleanup: ")
-        
+
         # Calculate memory freed
         memory_freed = before_cleanup["rss_mb"] - after_cleanup["rss_mb"]
-        self.batch_logger.log_info(f"Cleanup complete. Memory freed: {memory_freed:.1f}MB")
+        self.batch_logger.log_info(
+            f"Cleanup complete. Memory freed: {memory_freed:.1f}MB"
+        )

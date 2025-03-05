@@ -1,3 +1,5 @@
+# src/training/model_trainer.py
+# Compare this snippet from src/training/training_pipeline.py:
 """
 Model trainer module for handling individual model training processes.
 This is extracted from main.py to separate the training logic from the command-line interface.
@@ -15,6 +17,7 @@ from src.utils.logger import Logger
 from src.training.lr_finder import find_optimal_learning_rate
 from src.utils.report_generator import ReportGenerator
 from src.model_registry.registry_manager import ModelRegistryManager
+from ..utils.memory_utils import optimize_memory_use
 
 
 def train_model(
@@ -31,7 +34,7 @@ def train_model(
     attention_type: Optional[str] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
     """Train a single model and return results
-    
+
     Args:
         model_name: Name of the model to train
         config: Configuration dictionary
@@ -44,10 +47,10 @@ def train_model(
         batch_logger: Logger for batch operations (optional)
         resume: Whether to resume training from latest checkpoint
         attention_type: Type of attention mechanism to use (optional)
-        
+
     Returns:
         Tuple of (success_flag, metrics_dict)
-        
+
     Raises:
         ValueError: If model configuration is invalid
         RuntimeError: If an error occurs during model creation or training
@@ -60,8 +63,13 @@ def train_model(
         batch_logger.log_info(f"Starting training for model: {model_name}")
 
     try:
+        # Optimize memory before model creation
+        optimize_memory_use()
+        logger.info(f"Memory optimized before training model: {model_name}")
+
         # Get model hyperparameters (combining defaults with model-specific)
         from src.config.config_loader import ConfigLoader
+
         config_loader = ConfigLoader()
         hyperparams = config_loader.get_hyperparameters(model_name, config)
 
@@ -83,11 +91,13 @@ def train_model(
         if attention_type:
             print(f"Using {model_name} with {attention_type} attention")
             if batch_logger:
-                batch_logger.log_info(f"Using {model_name} with {attention_type} attention")
+                batch_logger.log_info(
+                    f"Using {model_name} with {attention_type} attention"
+                )
             model = model_factory.create_model(
-                model_name=model_name, 
+                model_name=model_name,
                 num_classes=len(class_names) if class_names else None,
-                attention_type=attention_type
+                attention_type=attention_type,
             )
         else:
             # Get model from config (which may include attention if it's in the model name)
@@ -95,8 +105,7 @@ def train_model(
             if batch_logger:
                 batch_logger.log_info(f"Creating model {model_name} from configuration")
             model = model_factory.get_model_from_config(
-                model_name, 
-                num_classes=len(class_names) if class_names else None
+                model_name, num_classes=len(class_names) if class_names else None
             )
 
         # Apply learning rate finder if configured
@@ -153,6 +162,7 @@ def train_model(
 
         # Create the trainer and train the model
         from src.training.trainer import Trainer
+
         trainer = Trainer(config)
         model, history, metrics = trainer.train(
             model, model_name, train_data, val_data, test_data, resume=resume
@@ -175,9 +185,10 @@ def train_model(
         # Clean up memory
         del model
         tf.keras.backend.clear_session()
-        
+
         # Explicitly run garbage collection
         import gc
+
         gc.collect()
 
         print(f"Training completed for {model_name}")
@@ -218,9 +229,10 @@ def train_model(
             del model
         except:
             pass
-        
+
         tf.keras.backend.clear_session()
         import gc
+
         gc.collect()
 
         return False, {"error": str(e), "traceback": trace}

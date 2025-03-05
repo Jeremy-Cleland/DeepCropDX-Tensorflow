@@ -195,6 +195,7 @@ class ModelFactory:
                 if attention_type:
                     attention_func = self.attention_types[attention_type]
                     print(f"Adding {attention_type} attention mechanism")
+                    print(f"Shape of tensor before attention: {x.shape}")
                     x = attention_func(x)
 
                 # Add classification head

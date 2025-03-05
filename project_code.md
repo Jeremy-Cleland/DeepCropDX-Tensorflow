@@ -1,14 +1,12 @@
 # Project Code Overview
 
-*Generated on 2025-03-05 02:56:17*
+*Generated on 2025-03-05 14:52:39*
 
 ## Table of Contents
 
+- [cleanup.py](#cleanup-py)
 - [compile.py](#compile-py)
 - [deepcropdx.yml](#deepcropdx-yml)
-- [docs/data_loader_old.py](#docs-data_loader_old-py)
-- [docs/model_factory_old.py](#docs-model_factory_old-py)
-- [docs/test_data_loader.py](#docs-test_data_loader-py)
 - [setup.py](#setup-py)
 - [src/config/__init__.py](#src-config-__init__-py)
 - [src/config/config.py](#src-config-config-py)
@@ -56,6 +54,221 @@
 - [src/utils/seed_utils.py](#src-utils-seed_utils-py)
 
 ## Code Files
+
+### cleanup.py
+
+```python
+#!/usr/bin/env python3
+"""
+Cleanup script to remove all generated model files, logs, and other artifacts,
+including __pycache__ directories, for starting with a clean slate.
+"""
+
+import os
+import glob
+import shutil
+import argparse
+from pathlib import Path
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Clean up the project directory")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Remove all generated files (models, reports, logs, etc.)",
+    )
+    parser.add_argument(
+        "--models", action="store_true", help="Remove only model files and directories"
+    )
+    parser.add_argument(
+        "--reports",
+        action="store_true",
+        help="Remove only report files and directories",
+    )
+    parser.add_argument("--logs", action="store_true", help="Remove only log files")
+    parser.add_argument(
+        "--pycache", action="store_true", help="Remove only __pycache__ directories"
+    )
+    parser.add_argument(
+        "--keep-registry",
+        action="store_true",
+        help="Keep the model registry file in the models directory",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be removed without actually removing anything",
+    )
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Skip confirmation prompt (USE WITH CAUTION)",
+    )
+    return parser.parse_args()
+
+
+def is_safe_to_delete(path, root_dir):
+    """Check if it's safe to delete this path based on some rules."""
+    abs_path = os.path.abspath(path)
+    abs_root = os.path.abspath(root_dir)
+
+    # Ensure the path is within our project root
+    if not abs_path.startswith(abs_root):
+        return False
+
+    # Don't delete source code (except __pycache__ folders)
+    if os.path.join(abs_root, "src") in abs_path:
+        return True if "__pycache__" in abs_path else False
+
+    # Avoid deleting raw data; allow deletion only for processed data
+    if os.path.join(abs_root, "data") in abs_path:
+        return (
+            True
+            if ("/processed" in abs_path or "/processed_data" in abs_path)
+            else False
+        )
+
+    # Otherwise, it's safe to delete models, reports, logs, etc.
+    return True
+
+
+def remove_directory_contents(directory, dry_run=False):
+    """Remove all contents of a directory without removing the directory itself."""
+    if not os.path.exists(directory):
+        return
+
+    contents = glob.glob(os.path.join(directory, "*"))
+    for item in contents:
+        if os.path.isdir(item):
+            if dry_run:
+                print(f"Would remove directory: {item}")
+            else:
+                shutil.rmtree(item)
+                print(f"Removed directory: {item}")
+        else:
+            if dry_run:
+                print(f"Would remove file: {item}")
+            else:
+                os.remove(item)
+                print(f"Removed file: {item}")
+
+
+def remove_model_files(project_root, dry_run=False, keep_registry=False):
+    """Remove model files and directories."""
+    models_dir = os.path.join(project_root, "models")
+    registry_path = os.path.join(models_dir, "model_registry.json")
+
+    if keep_registry and os.path.exists(registry_path):
+        # Backup the registry file content
+        with open(registry_path, "r") as f:
+            registry_data = f.read()
+        # Remove all contents in the models directory
+        remove_directory_contents(models_dir, dry_run)
+        # Restore the registry file
+        if dry_run:
+            print(f"Would keep registry file: {registry_path}")
+        else:
+            with open(registry_path, "w") as f:
+                f.write(registry_data)
+            print(f"Kept registry file: {registry_path}")
+    else:
+        remove_directory_contents(models_dir, dry_run)
+
+
+def remove_report_files(project_root, dry_run=False):
+    """Remove report files and directories."""
+    reports_dir = os.path.join(project_root, "reports")
+    remove_directory_contents(reports_dir, dry_run)
+
+
+def remove_log_files(project_root, dry_run=False):
+    """Remove log files from the logs directory and within model directories."""
+    # Remove log files in the logs directory
+    logs_dir = os.path.join(project_root, "logs")
+    if os.path.exists(logs_dir):
+        remove_directory_contents(logs_dir, dry_run)
+
+    # Remove log files within model directories (if any)
+    for log_file in glob.glob(
+        os.path.join(project_root, "models", "**", "logs", "*.log"), recursive=True
+    ):
+        if is_safe_to_delete(log_file, project_root):
+            if dry_run:
+                print(f"Would remove log file: {log_file}")
+            else:
+                os.remove(log_file)
+                print(f"Removed log file: {log_file}")
+
+
+def remove_pycache_dirs(project_root, dry_run=False):
+    """Remove all __pycache__ directories recursively in the project."""
+    for pycache_dir in glob.glob(
+        os.path.join(project_root, "**", "__pycache__"), recursive=True
+    ):
+        if is_safe_to_delete(pycache_dir, project_root):
+            if dry_run:
+                print(f"Would remove __pycache__ directory: {pycache_dir}")
+            else:
+                shutil.rmtree(pycache_dir)
+                print(f"Removed __pycache__ directory: {pycache_dir}")
+
+
+def main():
+    args = parse_args()
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    # If no specific flags are set, default to --all
+    if not (args.all or args.models or args.reports or args.logs or args.pycache):
+        args.all = True
+
+    if not args.confirm and not args.dry_run:
+        print("\n⚠️  WARNING: This will PERMANENTLY DELETE files! ⚠️\n")
+        print("This includes:")
+        if args.all or args.models:
+            print("- All trained models (with option to keep the registry)")
+        if args.all or args.reports:
+            print("- All evaluation reports and visualizations")
+        if args.all or args.logs:
+            print("- All log files")
+        if args.all or args.pycache:
+            print("- All __pycache__ directories")
+
+        confirmation = input(
+            "\nAre you sure you want to proceed? (type 'yes' to confirm): "
+        )
+        if confirmation.lower() != "yes":
+            print("Operation cancelled.")
+            return
+
+    if args.dry_run:
+        print("DRY RUN - no files will be deleted")
+
+    # Process based on provided arguments
+    if args.all or args.models:
+        remove_model_files(project_root, args.dry_run, args.keep_registry)
+
+    if args.all or args.reports:
+        remove_report_files(project_root, args.dry_run)
+
+    if args.all or args.logs:
+        remove_log_files(project_root, args.dry_run)
+
+    if args.all or args.pycache:
+        remove_pycache_dirs(project_root, args.dry_run)
+
+    if args.dry_run:
+        print("\nDRY RUN COMPLETE - No files were actually deleted")
+    else:
+        print("\nCleanup complete!")
+        print("You can now start with a fresh training run.")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
 
 ### compile.py
 
@@ -305,6 +518,8 @@ dependencies:
   - opencv
   - pymc
   - keras
+  - pydot
+  - tabulate
   - pip:
       - tensorflow-macos
       - tensorflow-metal
@@ -312,1752 +527,6 @@ dependencies:
       - pgmpy
       - asitop
 ```
-
----
-
-### docs/data_loader_old.py
-
-```python
-import tensorflow as tf
-import os
-import numpy as np
-import pandas as pd
-import json
-from pathlib import Path
-from tqdm.auto import tqdm
-import glob
-import math
-
-from src.config.config import get_paths
-from src.preprocessing.data_validator import DataValidator
-from src.utils.seed_utils import set_global_seeds
-
-
-def apply_perspective_transform(image, max_delta=0.1):
-    """Apply a random perspective transformation to an image
-
-    Args:
-        image: A tensor of shape [height, width, channels]
-        max_delta: Maximum distortion parameter
-
-    Returns:
-        Transformed image tensor of the same shape
-    """
-    height, width = tf.shape(image)[0], tf.shape(image)[1]
-
-    # Create source points (4 corners of the image)
-    src_points = tf.constant(
-        [
-            [0, 0],  # Top-left
-            [width - 1, 0],  # Top-right
-            [width - 1, height - 1],  # Bottom-right
-            [0, height - 1],  # Bottom-left
-        ],
-        dtype=tf.float32,
-    )
-
-    # Create random offsets for destination points
-    x_delta = tf.random.uniform(
-        [4],
-        -max_delta * tf.cast(width, tf.float32),
-        max_delta * tf.cast(width, tf.float32),
-    )
-    y_delta = tf.random.uniform(
-        [4],
-        -max_delta * tf.cast(height, tf.float32),
-        max_delta * tf.cast(height, tf.float32),
-    )
-
-    # Create destination points by adding offsets to source points
-    dst_points = src_points + tf.stack([x_delta, y_delta], axis=1)
-
-    # Convert to format expected by transform_projective
-    src_points = tf.expand_dims(src_points, axis=0)
-    dst_points = tf.expand_dims(dst_points, axis=0)
-
-    # Create the homography matrix
-    transform = tf.raw_ops.ImageProjectiveTransformV3(
-        images=tf.expand_dims(image, 0),
-        transforms=tf.raw_ops.ComputeProjectiveTransform(
-            src=src_points, dst=dst_points
-        ),
-        output_shape=tf.shape(image)[0:2],
-        interpolation="BILINEAR",
-        fill_mode="REFLECT",
-    )
-
-    return tf.squeeze(transform, axis=0)
-
-
-def random_erasing(image, p=0.5, scale=(0.02, 0.2), ratio=(0.3, 3.3), value=0):
-    """Randomly erase rectangles in the image (occlusion)
-
-    Args:
-        image: A tensor of shape [height, width, channels]
-        p: Probability of applying random erasing
-        scale: Range of area proportion to erase
-        ratio: Range of aspect ratio for erasing region
-        value: Value to fill erased region (0 for black)
-
-    Returns:
-        Augmented image tensor
-    """
-    if tf.random.uniform(shape=(), minval=0, maxval=1) > p:
-        return image
-
-    height, width, channels = tf.shape(image)[0], tf.shape(image)[1], tf.shape(image)[2]
-    area = tf.cast(height * width, tf.float32)
-
-    # Choose random scale and ratio
-    scale_factor = tf.random.uniform(shape=(), minval=scale[0], maxval=scale[1])
-    target_area = area * scale_factor
-    aspect_ratio = tf.random.uniform(shape=(), minval=ratio[0], maxval=ratio[1])
-
-    # Calculate h and w of erasing rectangle
-    h = tf.sqrt(target_area * aspect_ratio)
-    w = tf.sqrt(target_area / aspect_ratio)
-    h = tf.minimum(tf.cast(h, tf.int32), height)
-    w = tf.minimum(tf.cast(w, tf.int32), width)
-
-    # Choose random position
-    i = tf.random.uniform(shape=(), minval=0, maxval=height - h + 1, dtype=tf.int32)
-    j = tf.random.uniform(shape=(), minval=0, maxval=width - w + 1, dtype=tf.int32)
-
-    # Create erasing mask
-    mask = tf.ones_like(image)
-    erasing_region = tf.zeros([h, w, channels])
-
-    # Update mask with erasing region
-    mask_indices = tf.stack([i, j], axis=0)
-    mask_updates = tf.zeros([h, w, channels])
-
-    # Create mask patches
-    rows = tf.range(i, i + h)
-    cols = tf.range(j, j + w)
-    indices = tf.meshgrid(rows, cols)
-    indices = tf.stack(indices, axis=-1)
-    indices = tf.reshape(indices, [-1, 2])
-
-    # Create the mask using scatter_nd
-    mask_shape = tf.shape(image)
-    mask = tf.ones(mask_shape, dtype=image.dtype)
-    updates = tf.zeros([h * w, channels], dtype=image.dtype)
-    mask = tf.tensor_scatter_nd_update(mask, indices, updates)
-
-    # Apply mask to image
-    erased_image = image * mask
-
-    return erased_image
-
-
-def add_gaussian_noise(image, mean=0.0, stddev=0.01):
-    """Add Gaussian noise to an image
-
-    Args:
-        image: A tensor of shape [height, width, channels]
-        mean: Mean of the Gaussian noise distribution
-        stddev: Standard deviation of the noise
-
-    Returns:
-        Noisy image tensor
-    """
-    noise = tf.random.normal(shape=tf.shape(image), mean=mean, stddev=stddev)
-    noisy_image = image + noise
-    return tf.clip_by_value(noisy_image, 0.0, 1.0)
-
-
-def apply_mixup(images, labels, alpha=0.2):
-    """Apply MixUp augmentation to a batch of images and labels
-
-    Args:
-        images: Batch of images [batch_size, height, width, channels]
-        labels: Batch of one-hot encoded labels [batch_size, num_classes]
-        alpha: Beta distribution parameter
-
-    Returns:
-        Tuple of (mixed_images, mixed_labels)
-    """
-    batch_size = tf.shape(images)[0]
-
-    # Create shuffled indices
-    indices = tf.random.shuffle(tf.range(batch_size))
-
-    # Sample mixing parameter from beta distribution
-    lam = tf.random.uniform(shape=[batch_size], minval=0, maxval=1)
-    if alpha > 0:
-        lam = tf.random.beta(alpha, alpha, shape=[batch_size])
-
-    # Ensure lambda is between 0 and 1
-    lam_x = tf.maximum(lam, 1 - lam)
-    lam_x = tf.reshape(lam_x, [-1, 1, 1, 1])
-
-    # Mix images
-    mixed_images = lam_x * images + (1 - lam_x) * tf.gather(images, indices)
-
-    # Mix labels - reshape lambda for labels
-    lam_y = tf.reshape(lam, [-1, 1])
-    mixed_labels = lam_y * labels + (1 - lam_y) * tf.gather(labels, indices)
-
-    return mixed_images, mixed_labels
-
-
-def apply_cutmix(images, labels, alpha=1.0):
-    """Apply CutMix augmentation to a batch of images and labels
-
-    Args:
-        images: Batch of images [batch_size, height, width, channels]
-        labels: Batch of one-hot encoded labels [batch_size, num_classes]
-        alpha: Beta distribution parameter
-
-    Returns:
-        Tuple of (mixed_images, mixed_labels)
-    """
-    batch_size = tf.shape(images)[0]
-    image_height, image_width = tf.shape(images)[1], tf.shape(images)[2]
-
-    # Create shuffled indices
-    indices = tf.random.shuffle(tf.range(batch_size))
-
-    # Sample mixing parameter from beta distribution
-    lam = tf.random.beta(alpha, alpha, shape=[])
-
-    # Sample rectangular box coordinates
-    cut_ratio = tf.sqrt(1.0 - lam)
-    cut_h = tf.cast(tf.cast(image_height, tf.float32) * cut_ratio, tf.int32)
-    cut_w = tf.cast(tf.cast(image_width, tf.float32) * cut_ratio, tf.int32)
-
-    # Ensure the box isn't empty
-    cut_h = tf.maximum(cut_h, 1)
-    cut_w = tf.maximum(cut_w, 1)
-
-    # Generate random box center
-    center_x = tf.random.uniform(shape=[], minval=0, maxval=image_width, dtype=tf.int32)
-    center_y = tf.random.uniform(
-        shape=[], minval=0, maxval=image_height, dtype=tf.int32
-    )
-
-    # Calculate box boundaries
-    box_x1 = tf.maximum(center_x - cut_w // 2, 0)
-    box_y1 = tf.maximum(center_y - cut_h // 2, 0)
-    box_x2 = tf.minimum(center_x + cut_w // 2, image_width)
-    box_y2 = tf.minimum(center_y + cut_h // 2, image_height)
-
-    # Create mask for the box
-    outside_box = tf.logical_or(
-        tf.logical_or(
-            tf.less(tf.range(image_height)[:, tf.newaxis], box_y1),
-            tf.greater(tf.range(image_height)[:, tf.newaxis], box_y2),
-        )[:, tf.newaxis, :, tf.newaxis],
-        tf.logical_or(
-            tf.less(tf.range(image_width)[tf.newaxis, :], box_x1),
-            tf.greater(tf.range(image_width)[tf.newaxis, :], box_x2),
-        )[tf.newaxis, :, tf.newaxis, tf.newaxis],
-    )
-
-    # Expand mask to batch dimension
-    mask = tf.cast(outside_box, images.dtype)
-
-    # Calculate real lambda
-    box_area = tf.cast((box_y2 - box_y1) * (box_x2 - box_x1), tf.float32)
-    image_area = tf.cast(image_height * image_width, tf.float32)
-    lam = 1.0 - (box_area / image_area)
-
-    # Apply CutMix - first create copies of the original batch
-    images_mixed = tf.identity(images)
-
-    # Cut and paste the box from random images
-    cut_indices = tf.range(batch_size)
-    shuffled_indices = tf.gather(indices, cut_indices)
-
-    # Mix the images
-    images_mixed = images_mixed * mask + tf.gather(images, shuffled_indices) * (
-        1 - mask
-    )
-
-    # Mix the labels
-    lam = tf.cast(lam, labels.dtype)
-    labels_mixed = lam * labels + (1 - lam) * tf.gather(labels, shuffled_indices)
-
-    return images_mixed, labels_mixed
-
-
-def enhanced_augmentation_pipeline(image, label, config=None):
-    """Enhanced augmentation pipeline with multiple techniques
-
-    Args:
-        image: Input image tensor [height, width, channels]
-        label: Input label tensor
-        config: Dictionary of augmentation configuration parameters
-
-    Returns:
-        Tuple of (augmented_image, label)
-    """
-    if config is None:
-        config = {}
-
-    # Get augmentation parameters from config or use defaults
-    apply_color_jitter = config.get("color_jitter", True)
-    apply_noise = config.get("gaussian_noise", True)
-    noise_stddev = config.get("noise_stddev", 0.01)
-    apply_erasing = config.get("random_erasing", True)
-    erasing_prob = config.get("erasing_prob", 0.1)
-    apply_perspective = config.get("perspective_transform", True)
-    perspective_delta = config.get("perspective_delta", 0.1)
-
-    # Standard augmentations
-    rotation_range = config.get("rotation_range", 20)
-    width_shift_range = config.get("width_shift_range", 0.2)
-    height_shift_range = config.get("height_shift_range", 0.2)
-    horizontal_flip = config.get("horizontal_flip", True)
-    vertical_flip = config.get("vertical_flip", False)
-
-    # Random rotation
-    if rotation_range > 0:
-        radian = rotation_range * math.pi / 180
-        angle = tf.random.uniform(
-            shape=[],
-            minval=-radian,
-            maxval=radian,
-        )
-        image = tf.image.rot90(image, k=tf.cast(angle / (math.pi / 2), tf.int32))
-
-    # Random translation
-    if width_shift_range > 0 or height_shift_range > 0:
-        image_height = tf.shape(image)[0]
-        image_width = tf.shape(image)[1]
-
-        if width_shift_range > 0:
-            w_pixels = tf.cast(image_width * width_shift_range, tf.int32)
-            w_shift = tf.random.uniform(
-                shape=[], minval=-w_pixels, maxval=w_pixels, dtype=tf.int32
-            )
-            image = tf.roll(image, shift=w_shift, axis=1)
-
-        if height_shift_range > 0:
-            h_pixels = tf.cast(image_height * height_shift_range, tf.int32)
-            h_shift = tf.random.uniform(
-                shape=[], minval=-h_pixels, maxval=h_pixels, dtype=tf.int32
-            )
-            image = tf.roll(image, shift=h_shift, axis=0)
-
-    # Random flips
-    if horizontal_flip and tf.random.uniform(shape=[]) > 0.5:
-        image = tf.image.flip_left_right(image)
-
-    if vertical_flip and tf.random.uniform(shape=[]) > 0.5:
-        image = tf.image.flip_up_down(image)
-
-    # Advanced augmentations
-
-    # Color jitter
-    if apply_color_jitter:
-        # Random brightness
-        image = tf.image.random_brightness(image, max_delta=0.2)
-
-        # Random contrast
-        image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
-
-        # Random saturation
-        image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
-
-        # Random hue
-        image = tf.image.random_hue(image, max_delta=0.1)
-
-    # Perspective transformation
-    if apply_perspective and tf.random.uniform(shape=[]) > 0.5:
-        image = apply_perspective_transform(image, max_delta=perspective_delta)
-
-    # Gaussian noise
-    if apply_noise and tf.random.uniform(shape=[]) > 0.5:
-        image = add_gaussian_noise(image, stddev=noise_stddev)
-
-    # Random erasing
-    if apply_erasing and tf.random.uniform(shape=[]) < erasing_prob:
-        image = random_erasing(
-            image, p=1.0
-        )  # p=1.0 because we already checked probability
-
-    # Ensure image values stay in valid range
-    image = tf.clip_by_value(image, 0.0, 1.0)
-
-    return image, label
-
-
-def enhanced_batch_augmentation_pipeline(images, labels, config=None):
-    """Apply batch-level augmentations like MixUp and CutMix
-
-    Args:
-        images: Batch of images [batch_size, height, width, channels]
-        labels: Batch of one-hot encoded labels [batch_size, num_classes]
-        config: Dictionary of augmentation configuration parameters
-
-    Returns:
-        Tuple of (augmented_images, augmented_labels)
-    """
-    if config is None:
-        config = {}
-
-    # Get augmentation parameters from config or use defaults
-    apply_mixup = config.get("mixup", True)
-    apply_cutmix = config.get("cutmix", True)
-    mixup_alpha = config.get("mixup_alpha", 0.2)
-    cutmix_alpha = config.get("cutmix_alpha", 1.0)
-
-    # Select one batch augmentation randomly
-    aug_choice = tf.random.uniform(shape=[], minval=0, maxval=3, dtype=tf.int32)
-
-    # Apply MixUp
-    if aug_choice == 1 and apply_mixup:
-        images, labels = apply_mixup(images, labels, alpha=mixup_alpha)
-
-    # Apply CutMix
-    elif aug_choice == 2 and apply_cutmix:
-        images, labels = apply_cutmix(images, labels, alpha=cutmix_alpha)
-
-    # Otherwise, no batch augmentation (orig_image, orig_label)
-
-    return images, labels
-
-
-def get_validation_transforms(image, label, image_size=(224, 224)):
-    """Transforms for validation - center crop and normalization only
-
-    Args:
-        image: Input image tensor
-        label: Input label tensor
-        image_size: Target size (height, width)
-
-    Returns:
-        Tuple of (processed_image, label)
-    """
-    # Resize to slightly larger than target size
-    larger_size = (int(image_size[0] * 1.14), int(image_size[1] * 1.14))
-    image = tf.image.resize(image, larger_size)
-
-    # Center crop to target size
-    image = tf.image.resize_with_crop_or_pad(image, image_size[0], image_size[1])
-
-    # Ensure normalization
-    image = tf.clip_by_value(image, 0.0, 1.0)
-
-    return image, label
-
-
-class DataLoader:
-    """
-    Enhanced data loader using tf.data API for better performance and memory efficiency.
-    Now with support for reproducible dataset splits.
-    """
-
-    def __init__(self, config):
-        """Initialize the data loader with configuration
-
-        Args:
-            config: Configuration dictionary
-        """
-        self.config = config
-        self.paths = get_paths()
-
-        # Set random seed if specified
-        self.seed = self.config.get("seed", 42)
-        set_global_seeds(self.seed)
-
-        # Get training configuration
-        training_config = config.get("training", {})
-        self.batch_size = training_config.get("batch_size", 32)
-        self.validation_split = training_config.get("validation_split", 0.2)
-        self.test_split = training_config.get("test_split", 0.1)
-
-        # Get hardware configuration
-        hardware_config = config.get("hardware", {})
-        self.num_parallel_calls = hardware_config.get(
-            "num_parallel_calls", tf.data.AUTOTUNE
-        )
-        self.prefetch_size = hardware_config.get(
-            "prefetch_buffer_size", tf.data.AUTOTUNE
-        )
-
-        # Get data augmentation configuration
-        self.augmentation_config = config.get("data_augmentation", {})
-
-        # Get advanced augmentation configuration
-        self.advanced_augmentation = config.get("advanced_augmentation", {})
-        self.use_enhanced_augmentation = self.advanced_augmentation.get(
-            "enabled", False
-        )
-        self.use_batch_augmentation = self.advanced_augmentation.get(
-            "batch_augmentation", False
-        )
-
-        # Initialize data validator
-        self.validator = DataValidator(config)
-
-        # Get validation configuration
-        validation_config = config.get("data_validation", {})
-        self.validate_data = validation_config.get("enabled", True)
-
-        # Set image parameters
-        self.image_size = self.config.get("data", {}).get("image_size", (224, 224))
-        if isinstance(self.image_size, int):
-            self.image_size = (self.image_size, self.image_size)
-
-    def load_data_efficient(self, data_dir=None, use_saved_splits=None):
-        """Load data using efficient tf.data pipeline with sharding support
-
-        Args:
-            data_dir: Path to the dataset directory. If None, uses the configured path.
-            use_saved_splits: Whether to try loading from saved splits first.
-                              If None, determined from config.
-
-        Returns:
-            Tuple of (train_dataset, validation_dataset, test_dataset, class_names)
-        """
-        # Determine if we should use saved splits
-        if use_saved_splits is None:
-            use_saved_splits = self.config.get("data", {}).get(
-                "use_saved_splits", False
-            )
-
-        if data_dir is None:
-            # Use configured paths
-            data_path_config = self.config.get("paths", {}).get("data", {})
-            if isinstance(data_path_config, dict):
-                data_dir = data_path_config.get("processed", "data/processed")
-            else:
-                data_dir = "data/processed"
-
-        # Ensure the path is absolute
-        data_dir = Path(data_dir)
-        if not data_dir.is_absolute():
-            data_dir = self.paths.base_dir / data_dir
-
-        print(f"Loading data from {data_dir}")
-
-        # Check if saved splits exist and should be used
-        splits_dir = data_dir / "splits"
-        splits_metadata_path = splits_dir / "splits_metadata.json"
-
-        if use_saved_splits and splits_dir.exists() and splits_metadata_path.exists():
-            try:
-                print(f"Found saved splits at {splits_dir}, loading...")
-                return self.load_from_saved_splits(splits_dir)
-            except Exception as e:
-                print(f"Failed to load from saved splits: {e}")
-                print("Falling back to creating new splits")
-
-        # Validate the dataset if enabled
-        if self.validate_data:
-            print("Validating dataset before loading...")
-            validation_results = self.validator.validate_dataset(data_dir)
-
-            # Check for critical errors that would prevent proper training
-            if validation_results["errors"]:
-                raise ValueError(
-                    f"Dataset validation found critical errors: {validation_results['errors']}. "
-                    "Please fix these issues before training."
-                )
-
-            # Log warnings but continue
-            if validation_results["warnings"]:
-                print("\nDataset validation warnings:")
-                for warning in validation_results["warnings"]:
-                    print(f"  - {warning}")
-                print("\nContinuing with data loading despite warnings...\n")
-
-        # Gather class directories and create label mapping
-        class_dirs = [d for d in data_dir.iterdir() if d.is_dir()]
-        if not class_dirs:
-            raise ValueError(f"No class directories found in {data_dir}")
-
-        # Sort class directories for reproducibility
-        class_dirs = sorted(class_dirs)
-
-        # Create class mapping
-        class_names = {i: class_dir.name for i, class_dir in enumerate(class_dirs)}
-        class_indices = {class_dir.name: i for i, class_dir in enumerate(class_dirs)}
-
-        # Initialize lists for file paths and labels
-        all_files = []
-        all_labels = []
-        class_counts = {}
-
-        # Collect all files and labels
-        print("Scanning dataset...")
-        for class_dir in tqdm(class_dirs, desc="Classes"):
-            class_name = class_dir.name
-            class_idx = class_indices[class_name]
-            class_counts[class_name] = 0
-
-            # Find all image files in this class directory
-            image_files = []
-            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
-                image_files.extend(list(class_dir.glob(f"**/{ext}")))
-                image_files.extend(list(class_dir.glob(f"**/{ext.upper()}")))
-
-            # Add files and labels to lists
-            for img_file in image_files:
-                all_files.append(str(img_file))
-                all_labels.append(class_idx)
-                class_counts[class_name] += 1
-
-        # Print dataset statistics
-        print(f"Dataset scan completed:")
-        print(f"  - Total images: {len(all_files)}")
-        print(f"  - Classes: {len(class_names)}")
-        for class_name, count in class_counts.items():
-            print(f"    - {class_name}: {count} images")
-
-        # Create a tf.data.Dataset from file paths and labels
-        dataset = tf.data.Dataset.from_tensor_slices((all_files, all_labels))
-
-        # Shuffle the dataset with a fixed seed for reproducibility
-        dataset = dataset.shuffle(
-            buffer_size=min(len(all_files), 10000),
-            seed=self.seed,
-            reshuffle_each_iteration=True,
-        )
-
-        # Check if there's a dedicated test directory
-        test_dir = self.paths.data_dir / "test"
-        separate_test_set = False
-        test_dataset = None
-
-        if test_dir.exists() and self.test_split > 0:
-            print("Found dedicated test directory. Loading test set...")
-            test_files = []
-            test_labels = []
-
-            # Assume same class structure in test directory
-            for class_name, class_idx in class_indices.items():
-                class_test_dir = test_dir / class_name
-                if class_test_dir.exists():
-                    for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
-                        test_files.extend(
-                            [
-                                (str(f), class_idx)
-                                for f in class_test_dir.glob(f"**/{ext}")
-                            ]
-                        )
-                        test_files.extend(
-                            [
-                                (str(f), class_idx)
-                                for f in class_test_dir.glob(f"**/{ext.upper()}")
-                            ]
-                        )
-
-            if test_files:
-                separate_test_set = True
-                test_files_paths, test_labels = zip(*test_files)
-                test_dataset = tf.data.Dataset.from_tensor_slices(
-                    (test_files_paths, test_labels)
-                )
-                print(
-                    f"  - Test: {len(test_files)} images from dedicated test directory"
-                )
-
-        # Split the dataset if no separate test set is available
-        if not separate_test_set:
-            # Calculate split sizes
-            dataset_size = len(all_files)
-            train_size = int(
-                dataset_size * (1 - self.validation_split - self.test_split)
-            )
-            val_size = int(dataset_size * self.validation_split)
-            test_size = dataset_size - train_size - val_size
-
-            print(f"Splitting dataset:")
-            print(
-                f"  - Training: {train_size} images ({(train_size/dataset_size)*100:.1f}%)"
-            )
-            print(
-                f"  - Validation: {val_size} images ({(val_size/dataset_size)*100:.1f}%)"
-            )
-            print(f"  - Test: {test_size} images ({(test_size/dataset_size)*100:.1f}%)")
-
-            # Split the dataset
-            train_dataset = dataset.take(train_size)
-            temp_dataset = dataset.skip(train_size)
-            val_dataset = temp_dataset.take(val_size)
-            test_dataset = temp_dataset.skip(val_size)
-        else:
-            # If we have a separate test set, just split into train and validation
-            dataset_size = len(all_files)
-            train_size = int(dataset_size * (1 - self.validation_split))
-            val_size = dataset_size - train_size
-
-            print(f"Splitting dataset (with separate test set):")
-            print(
-                f"  - Training: {train_size} images ({(train_size/dataset_size)*100:.1f}%)"
-            )
-            print(
-                f"  - Validation: {val_size} images ({(val_size/dataset_size)*100:.1f}%)"
-            )
-
-            # Split the dataset
-            train_dataset = dataset.take(train_size)
-            val_dataset = dataset.skip(train_size)
-
-        # Create preprocessing and augmentation functions
-        def parse_image(file_path, label):
-            """Load and preprocess an image from a file path."""
-            # Read the image file
-            img = tf.io.read_file(file_path)
-
-            # Decode the image
-            # Try different decoders based on file extension
-            file_path_lower = tf.strings.lower(file_path)
-            is_png = tf.strings.regex_full_match(file_path_lower, ".*\.png")
-            is_jpeg = tf.strings.regex_full_match(file_path_lower, ".*\.(jpg|jpeg)")
-
-            if is_png:
-                img = tf.image.decode_png(img, channels=3)
-            elif is_jpeg:
-                img = tf.image.decode_jpeg(img, channels=3)
-            else:
-                # Default to image decoder which handles various formats
-                img = tf.image.decode_image(img, channels=3, expand_animations=False)
-
-            # Resize image
-            img = tf.image.resize(img, self.image_size)
-
-            # Normalize pixel values
-            img = tf.cast(img, tf.float32) / 255.0
-
-            # One-hot encode the label
-            label = tf.one_hot(label, depth=len(class_names))
-
-            return img, label
-
-        def augment_image(image, label):
-            """Apply data augmentation to an image."""
-            if self.use_enhanced_augmentation:
-                # Use the enhanced augmentation pipeline with our config
-                return enhanced_augmentation_pipeline(
-                    image, label, self.augmentation_config
-                )
-
-            # Original augmentation logic as fallback
-            # Extract augmentation parameters from config
-            rotation_range = self.augmentation_config.get("rotation_range", 20)
-            width_shift_range = self.augmentation_config.get("width_shift_range", 0.2)
-            height_shift_range = self.augmentation_config.get("height_shift_range", 0.2)
-            zoom_range = self.augmentation_config.get("zoom_range", 0.2)
-            horizontal_flip = self.augmentation_config.get("horizontal_flip", True)
-            vertical_flip = self.augmentation_config.get("vertical_flip", False)
-
-            # Random rotation
-            if rotation_range > 0:
-                angle = tf.random.uniform(
-                    shape=[],
-                    minval=-rotation_range,
-                    maxval=rotation_range,
-                    seed=self.seed,
-                )
-                image = tf.image.rot90(image, k=tf.cast(angle / 90, tf.int32))
-
-            # Random width shift
-            if width_shift_range > 0:
-                w_shift = (
-                    tf.random.uniform(
-                        shape=[],
-                        minval=-width_shift_range,
-                        maxval=width_shift_range,
-                        seed=self.seed,
-                    )
-                    * self.image_size[1]
-                )
-                image = tf.roll(image, shift=tf.cast(w_shift, tf.int32), axis=1)
-
-            # Random height shift
-            if height_shift_range > 0:
-                h_shift = (
-                    tf.random.uniform(
-                        shape=[],
-                        minval=-height_shift_range,
-                        maxval=height_shift_range,
-                        seed=self.seed,
-                    )
-                    * self.image_size[0]
-                )
-                image = tf.roll(image, shift=tf.cast(h_shift, tf.int32), axis=0)
-
-            # Random horizontal flip
-            if horizontal_flip:
-                image = tf.image.random_flip_left_right(image, seed=self.seed)
-
-            # Random vertical flip
-            if vertical_flip:
-                image = tf.image.random_flip_up_down(image, seed=self.seed)
-
-            # Random brightness
-            image = tf.image.random_brightness(image, 0.2, seed=self.seed)
-
-            # Random contrast
-            image = tf.image.random_contrast(image, 0.8, 1.2, seed=self.seed)
-
-            # Make sure pixel values are still in [0, 1]
-            image = tf.clip_by_value(image, 0.0, 1.0)
-
-            return image, label
-
-        # Define a function for batch augmentation
-        def apply_batch_augmentation(images, labels):
-            """Apply batch-level augmentation (MixUp, CutMix) to a batch"""
-            if not self.use_batch_augmentation:
-                return images, labels
-
-            return enhanced_batch_augmentation_pipeline(
-                images, labels, self.advanced_augmentation
-            )
-
-        # Apply preprocessing to datasets
-        print("Preparing datasets...")
-
-        # Apply image loading and preprocessing to all datasets
-        train_dataset = train_dataset.map(
-            parse_image, num_parallel_calls=self.num_parallel_calls
-        )
-        val_dataset = val_dataset.map(
-            parse_image, num_parallel_calls=self.num_parallel_calls
-        )
-        if test_dataset is not None:
-            test_dataset = test_dataset.map(
-                parse_image, num_parallel_calls=self.num_parallel_calls
-            )
-
-        # Apply augmentation only to training data
-        if self.augmentation_config.get("enabled", True):
-            print("Applying data augmentation to training set")
-            train_dataset = train_dataset.map(
-                augment_image, num_parallel_calls=self.num_parallel_calls
-            )
-
-        # Batch datasets
-        train_dataset = train_dataset.batch(self.batch_size)
-        val_dataset = val_dataset.batch(self.batch_size)
-        if test_dataset is not None:
-            test_dataset = test_dataset.batch(self.batch_size)
-
-        # Apply batch augmentation to the training dataset if enabled
-        if self.use_batch_augmentation:
-            print("Applying batch augmentation (MixUp/CutMix) to training set")
-            train_dataset = train_dataset.map(
-                apply_batch_augmentation, num_parallel_calls=self.num_parallel_calls
-            )
-
-        # Apply prefetch for all datasets
-        train_dataset = train_dataset.prefetch(self.prefetch_size)
-        val_dataset = val_dataset.prefetch(self.prefetch_size)
-        if test_dataset is not None:
-            test_dataset = test_dataset.prefetch(self.prefetch_size)
-
-        # Add properties to make compatible with Keras generators
-        # This helps maintain compatibility with existing code
-        class_indices_dict = {name: idx for idx, name in class_names.items()}
-
-        # Create generator-like attributes for train dataset
-        train_dataset.class_indices = class_indices_dict
-        train_dataset.samples = train_size
-
-        # Create generator-like attributes for validation dataset
-        val_dataset.class_indices = class_indices_dict
-        val_dataset.samples = val_size
-
-        # Create generator-like attributes for test dataset if it exists
-        if test_dataset is not None:
-            test_dataset.class_indices = class_indices_dict
-            test_dataset.samples = (
-                test_size if not separate_test_set else len(test_files)
-            )
-
-        print(f"Dataset preparation complete.")
-
-        # Save the splits for future use if enabled
-        if self.config.get("data", {}).get("save_splits", False):
-            try:
-                print("Saving dataset splits for reproducibility")
-                self.save_dataset_splits(
-                    {"train": train_dataset, "val": val_dataset, "test": test_dataset},
-                    class_indices,
-                    data_dir,
-                )
-            except Exception as e:
-                print(f"Failed to save dataset splits: {e}")
-
-        return train_dataset, val_dataset, test_dataset, class_names
-
-    def load_data(self, data_dir=None, use_saved_splits=None):
-        """
-        Load data with support for saved splits for reproducibility.
-
-        Args:
-            data_dir: Path to the dataset directory. If None, uses the configured path.
-            use_saved_splits: Whether to try loading from saved splits first.
-
-        Returns:
-            Tuple of (train_dataset, validation_dataset, test_dataset, class_names)
-        """
-        # Determine if we should use saved splits
-        if use_saved_splits is None:
-            use_saved_splits = self.config.get("data", {}).get(
-                "use_saved_splits", False
-            )
-
-        return self.load_data_efficient(data_dir, use_saved_splits)
-
-    def save_dataset_splits(self, dataset_info, class_indices, output_dir):
-        """Save dataset splits to disk for reproducibility
-
-        Args:
-            dataset_info: Dictionary containing dataset information with keys 'train', 'val', 'test'
-            class_indices: Dictionary mapping class names to indices
-            output_dir: Directory to save the splits
-
-        Returns:
-            Dictionary with paths to saved split files
-        """
-        output_path = Path(output_dir)
-        splits_dir = output_path / "splits"
-        os.makedirs(splits_dir, exist_ok=True)
-
-        # Save class mapping
-        class_to_idx = class_indices
-        idx_to_class = {idx: name for name, idx in class_to_idx.items()}
-
-        class_mapping_path = splits_dir / "class_mapping.json"
-        with open(class_mapping_path, "w") as f:
-            json.dump(
-                {"class_to_idx": class_to_idx, "idx_to_class": idx_to_class},
-                f,
-                indent=2,
-            )
-
-        print(f"Class mapping saved to {class_mapping_path}")
-
-        split_paths = {}
-
-        # Extract and save file paths and labels for each split
-        for split_name, dataset in dataset_info.items():
-            if dataset is None:
-                continue
-
-            # Create lists to store file paths, indices and labels
-            file_paths = []
-            indices = []
-            labels = []
-
-            # Try to get file paths directly from source before any transformations
-            source_dataset = getattr(dataset, "_input_dataset", None)
-            if source_dataset is not None:
-                print(
-                    f"Found source dataset for {split_name}, attempting to extract file paths"
-                )
-
-                # Try different approaches to get file paths
-                try:
-                    # For datasets created from tensor_slices((file_paths, labels))
-                    for element in source_dataset.take(1):
-                        if isinstance(element, tuple) and isinstance(
-                            element[0], tf.Tensor
-                        ):
-                            if element[0].dtype == tf.string:
-                                # This is likely a file path tensor
-                                print(
-                                    f"Found file path tensor in source dataset for {split_name}"
-                                )
-
-                                # Create a new dataset that extracts just the file paths and labels
-                                for file_path_tensor, label_tensor in source_dataset:
-                                    try:
-                                        # Convert tensor to numpy and then to string
-                                        file_path = file_path_tensor.numpy().decode(
-                                            "utf-8"
-                                        )
-                                        label = label_tensor.numpy()
-
-                                        file_paths.append(file_path)
-                                        labels.append(label)
-                                    except:
-                                        pass
-                except:
-                    print(
-                        f"Could not extract file paths from source dataset for {split_name}"
-                    )
-
-            # If we got file paths directly from source
-            if file_paths:
-                print(
-                    f"Successfully extracted {len(file_paths)} file paths for {split_name}"
-                )
-
-                # Create DataFrame with file paths
-                split_df = pd.DataFrame(
-                    {
-                        "file_path": file_paths,
-                        "label": labels,
-                        "class_name": [
-                            idx_to_class.get(
-                                str(label) if isinstance(label, str) else label,
-                                f"unknown_{label}",
-                            )
-                            for label in labels
-                        ],
-                    }
-                )
-            else:
-                print(
-                    f"Could not extract file paths for {split_name} split, will save index only"
-                )
-
-                # Extract indices and labels
-                index_counter = 0
-
-                # Get number of samples if possible
-                num_samples = getattr(dataset, "samples", None)
-
-                # Process each batch
-                for x_batch, y_batch in tqdm(
-                    dataset, desc=f"Processing {split_name} split", total=num_samples
-                ):
-                    # Handle batched data
-                    batch_size = x_batch.shape[0]
-
-                    # Extract labels from the batch
-                    if (
-                        len(y_batch.shape) > 1 and y_batch.shape[1] > 1
-                    ):  # One-hot encoded
-                        batch_labels = tf.argmax(y_batch, axis=1).numpy()
-                    else:
-                        batch_labels = y_batch.numpy()
-
-                    # Add indices and labels
-                    for i in range(batch_size):
-                        indices.append(index_counter)
-                        labels.append(int(batch_labels[i]))
-                        index_counter += 1
-
-                # Create DataFrame without file paths
-                split_df = pd.DataFrame(
-                    {
-                        "index": indices,
-                        "label": labels,
-                        "class_name": [
-                            idx_to_class.get(label, f"unknown_{label}")
-                            for label in labels
-                        ],
-                    }
-                )
-
-            # Save to CSV
-            split_path = splits_dir / f"{split_name}_split.csv"
-            split_df.to_csv(split_path, index=False)
-            split_paths[split_name] = str(split_path)
-
-            print(
-                f"{split_name.capitalize()} split saved to {split_path} ({len(split_df)} samples)"
-            )
-
-        # Save metadata about the splits
-        metadata = {
-            "splits": {
-                k: {"path": v, "size": len(pd.read_csv(v))}
-                for k, v in split_paths.items()
-            },
-            "class_mapping_path": str(class_mapping_path),
-            "num_classes": len(class_to_idx),
-            "image_size": list(self.image_size),
-            "creation_timestamp": str(pd.Timestamp.now()),
-            "split_percentages": {
-                "validation_split": self.validation_split,
-                "test_split": self.test_split,
-            },
-            "has_file_paths": {
-                k: "file_path" in pd.read_csv(v).columns for k, v in split_paths.items()
-            },
-        }
-
-        metadata_path = splits_dir / "splits_metadata.json"
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        print(f"Dataset splits metadata saved to {metadata_path}")
-        return split_paths
-
-    def load_from_saved_splits(self, splits_dir=None):
-        """Load datasets from previously saved splits
-
-        Args:
-            splits_dir: Directory containing the saved splits. If None, uses the default processed data directory.
-
-        Returns:
-            Tuple of (train_dataset, validation_dataset, test_dataset, class_names)
-        """
-        if splits_dir is None:
-            # Use configured paths
-            data_path_config = self.config.get("paths", {}).get("data", {})
-            if isinstance(data_path_config, dict):
-                data_dir = data_path_config.get("processed", "data/processed")
-            else:
-                data_dir = "data/processed"
-
-            # Ensure the path is absolute
-            data_dir = Path(data_dir)
-            if not data_dir.is_absolute():
-                data_dir = self.paths.base_dir / data_dir
-
-            splits_dir = data_dir / "splits"
-        else:
-            splits_dir = Path(splits_dir)
-
-        if not splits_dir.exists():
-            raise ValueError(f"Splits directory not found at {splits_dir}")
-
-        # Load metadata if available
-        metadata_path = splits_dir / "splits_metadata.json"
-        if metadata_path.exists():
-            with open(metadata_path, "r") as f:
-                metadata = json.load(f)
-
-            print(f"Loaded splits metadata from {metadata_path}")
-            print(
-                f"Found {metadata['num_classes']} classes with splits: {list(metadata['splits'].keys())}"
-            )
-        else:
-            metadata = None
-            print(f"No splits metadata found at {metadata_path}")
-
-        # Load class mapping
-        class_mapping_path = splits_dir / "class_mapping.json"
-        if not class_mapping_path.exists():
-            raise ValueError(f"Class mapping file not found at {class_mapping_path}")
-
-        with open(class_mapping_path, "r") as f:
-            class_mapping = json.load(f)
-
-        class_to_idx = class_mapping.get("class_to_idx", {})
-        idx_to_class = class_mapping.get("idx_to_class", {})
-
-        # Convert string indices to integers if needed
-        if all(isinstance(k, str) for k in idx_to_class.keys()):
-            idx_to_class = {int(k): v for k, v in idx_to_class.items()}
-
-        class_names = {int(idx): name for idx, name in idx_to_class.items()}
-
-        print(f"Loaded class mapping with {len(class_names)} classes")
-
-        # Function to create a dataset from a CSV file
-        def create_dataset_from_csv(csv_path):
-            """Create a TensorFlow dataset from the CSV file containing split information"""
-            if not Path(csv_path).exists():
-                print(f"Split file not found at {csv_path}, skipping")
-                return None
-
-            # Load the CSV file
-            df = pd.read_csv(csv_path)
-            print(f"Loaded split with {len(df)} samples")
-
-            # Check if we have file paths
-            has_file_paths = "file_path" in df.columns
-
-            if has_file_paths:
-                # Create dataset from file paths and labels
-                file_paths = df["file_path"].values
-                labels = df["label"].values
-
-                # Verify file paths exist
-                valid_paths = []
-                valid_labels = []
-                for i, path in enumerate(file_paths):
-                    if os.path.exists(path):
-                        valid_paths.append(path)
-                        valid_labels.append(labels[i])
-
-                if len(valid_paths) < len(file_paths):
-                    print(
-                        f"Warning: {len(file_paths) - len(valid_paths)} file paths don't exist"
-                    )
-                    if len(valid_paths) == 0:
-                        print(
-                            "No valid file paths found, falling back to rebuilding dataset"
-                        )
-                        return None
-
-                # Create a dataset from file paths and labels
-                dataset = tf.data.Dataset.from_tensor_slices(
-                    (valid_paths, valid_labels)
-                )
-
-                # Map the parse_image function
-                dataset = dataset.map(
-                    self._parse_image_with_class_names(class_names),
-                    num_parallel_calls=self.num_parallel_calls,
-                )
-                return dataset
-            else:
-                # Don't create placeholder images - it would crash with large datasets
-                print(
-                    f"Original file paths not available for {os.path.basename(csv_path)}."
-                )
-                print("Falling back to rebuilding dataset from raw files.")
-                return None
-
-        # Load datasets from CSV files
-        train_split_path = splits_dir / "train_split.csv"
-        val_split_path = splits_dir / "val_split.csv"
-        test_split_path = splits_dir / "test_split.csv"
-
-        # Create datasets
-        train_dataset = create_dataset_from_csv(train_split_path)
-        val_dataset = create_dataset_from_csv(val_split_path)
-        test_dataset = create_dataset_from_csv(test_split_path)
-
-        # Check if required datasets were loaded - if not, rebuild from raw data
-        if train_dataset is None or val_dataset is None:
-            print("Could not load datasets from splits. Rebuilding from raw data...")
-            # Get the parent directory of the splits directory
-            parent_dir = splits_dir.parent
-
-            # Fall back to creating new splits from the original data
-            return self.load_data_efficient(parent_dir, use_saved_splits=False)
-
-        # Apply augmentation to training set if enabled
-        if self.augmentation_config.get("enabled", True):
-            print("Applying data augmentation to training set")
-            train_dataset = train_dataset.map(
-                self._get_augment_function(), num_parallel_calls=self.num_parallel_calls
-            )
-
-        # Apply standard dataset transformations
-        # Shuffle training data
-        train_dataset = train_dataset.shuffle(
-            buffer_size=10000, seed=self.seed, reshuffle_each_iteration=True
-        )
-
-        # Batch and prefetch
-        train_dataset = train_dataset.batch(self.batch_size).prefetch(
-            self.prefetch_size
-        )
-        val_dataset = val_dataset.batch(self.batch_size).prefetch(self.prefetch_size)
-        if test_dataset is not None:
-            test_dataset = test_dataset.batch(self.batch_size).prefetch(
-                self.prefetch_size
-            )
-
-        # Add properties to make compatible with Keras generators
-        class_indices_dict = {name: idx for name, idx in class_to_idx.items()}
-
-        # Get sample counts from metadata if available, otherwise from DataFrames
-        if metadata and "splits" in metadata:
-            train_samples = (
-                metadata["splits"]
-                .get("train", {})
-                .get("size", len(pd.read_csv(train_split_path)))
-            )
-            val_samples = (
-                metadata["splits"]
-                .get("val", {})
-                .get("size", len(pd.read_csv(val_split_path)))
-            )
-            test_samples = metadata["splits"].get("test", {}).get("size", 0)
-            if test_dataset is not None and test_samples == 0:
-                test_samples = len(pd.read_csv(test_split_path))
-        else:
-            train_samples = len(pd.read_csv(train_split_path))
-            val_samples = len(pd.read_csv(val_split_path))
-            test_samples = 0
-            if test_dataset is not None:
-                test_samples = len(pd.read_csv(test_split_path))
-
-        # Set dataset attributes
-        train_dataset.class_indices = class_indices_dict
-        train_dataset.samples = train_samples
-
-        val_dataset.class_indices = class_indices_dict
-        val_dataset.samples = val_samples
-
-        if test_dataset is not None:
-            test_dataset.class_indices = class_indices_dict
-            test_dataset.samples = test_samples
-
-        print(f"Successfully loaded datasets from saved splits at {splits_dir}")
-        print(
-            f"Train: {train_samples} samples, Validation: {val_samples} samples, Test: {test_samples if test_dataset is not None else 0} samples"
-        )
-
-        return train_dataset, val_dataset, test_dataset, class_names
-
-    def _parse_image_with_class_names(self, class_names):
-        """Return a function that parses images with the given class names"""
-
-        def parse_image(file_path, label):
-            """Load and preprocess an image from a file path."""
-            # Read the image file
-            img = tf.io.read_file(file_path)
-
-            # Decode the image
-            # Try different decoders based on file extension
-            file_path_lower = tf.strings.lower(file_path)
-            is_png = tf.strings.regex_full_match(file_path_lower, ".*\.png")
-            is_jpeg = tf.strings.regex_full_match(file_path_lower, ".*\.(jpg|jpeg)")
-
-            if is_png:
-                img = tf.image.decode_png(img, channels=3)
-            elif is_jpeg:
-                img = tf.image.decode_jpeg(img, channels=3)
-            else:
-                # Default to image decoder which handles various formats
-                img = tf.image.decode_image(img, channels=3, expand_animations=False)
-
-            # Resize image
-            img = tf.image.resize(img, self.image_size)
-
-            # Normalize pixel values
-            img = tf.cast(img, tf.float32) / 255.0
-
-            # One-hot encode the label
-            label = tf.one_hot(label, depth=len(class_names))
-
-            return img, label
-
-        return parse_image
-
-    def _get_augment_function(self):
-        """Return the data augmentation function with current configuration"""
-
-        def augment_image(image, label):
-            """Apply data augmentation to an image."""
-            if self.use_enhanced_augmentation:
-                # Use the enhanced augmentation pipeline with our config
-                return enhanced_augmentation_pipeline(
-                    image, label, self.augmentation_config
-                )
-
-            # Original augmentation logic as fallback
-            # Extract augmentation parameters from config
-            rotation_range = self.augmentation_config.get("rotation_range", 20)
-            width_shift_range = self.augmentation_config.get("width_shift_range", 0.2)
-            height_shift_range = self.augmentation_config.get("height_shift_range", 0.2)
-            zoom_range = self.augmentation_config.get("zoom_range", 0.2)
-            horizontal_flip = self.augmentation_config.get("horizontal_flip", True)
-            vertical_flip = self.augmentation_config.get("vertical_flip", False)
-
-            # Random rotation
-            if rotation_range > 0:
-                angle = tf.random.uniform(
-                    shape=[],
-                    minval=-rotation_range,
-                    maxval=rotation_range,
-                    seed=self.seed,
-                )
-                image = tf.image.rot90(image, k=tf.cast(angle / 90, tf.int32))
-
-            # Random width shift
-            if width_shift_range > 0:
-                w_shift = (
-                    tf.random.uniform(
-                        shape=[],
-                        minval=-width_shift_range,
-                        maxval=width_shift_range,
-                        seed=self.seed,
-                    )
-                    * self.image_size[1]
-                )
-                image = tf.roll(image, shift=tf.cast(w_shift, tf.int32), axis=1)
-
-            # Random height shift
-            if height_shift_range > 0:
-                h_shift = (
-                    tf.random.uniform(
-                        shape=[],
-                        minval=-height_shift_range,
-                        maxval=height_shift_range,
-                        seed=self.seed,
-                    )
-                    * self.image_size[0]
-                )
-                image = tf.roll(image, shift=tf.cast(h_shift, tf.int32), axis=0)
-
-            # Random horizontal flip
-            if horizontal_flip:
-                image = tf.image.random_flip_left_right(image, seed=self.seed)
-
-            # Random vertical flip
-            if vertical_flip:
-                image = tf.image.random_flip_up_down(image, seed=self.seed)
-
-            # Random brightness
-            image = tf.image.random_brightness(image, 0.2, seed=self.seed)
-
-            # Random contrast
-            image = tf.image.random_contrast(image, 0.8, 1.2, seed=self.seed)
-
-            # Make sure pixel values are still in [0, 1]
-            image = tf.clip_by_value(image, 0.0, 1.0)
-
-            return image, label
-
-        return augment_image
-```
-
----
-
-### docs/model_factory_old.py
-
-```python
-"""
-Model factory with support for standard and attention-enhanced models.
-"""
-
-import tensorflow as tf
-from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, BatchNormalization
-
-from src.config.config_loader import ConfigLoader
-from src.models.attention import (
-    squeeze_and_excitation_block,
-    cbam_block,
-    spatial_attention_block,
-)
-
-
-class ModelFactory:
-    """A factory for creating standard and attention-enhanced models."""
-    
-    def __init__(self):
-        """Initialize the model factory with supported models and configurations."""
-        self.config_loader = ConfigLoader()
-        
-        # Dictionary of supported base models
-        self.base_models = {
-            # EfficientNet family
-            "EfficientNetB0": tf.keras.applications.EfficientNetB0,
-            "EfficientNetB1": tf.keras.applications.EfficientNetB1,
-            "EfficientNetB2": tf.keras.applications.EfficientNetB2,
-            
-            # ResNet family
-            "ResNet50": tf.keras.applications.ResNet50,
-            "ResNet101": tf.keras.applications.ResNet101,
-            
-            # MobileNet family
-            "MobileNet": tf.keras.applications.MobileNet,
-            "MobileNetV2": tf.keras.applications.MobileNetV2,
-            "MobileNetV3Small": tf.keras.applications.MobileNetV3Small,
-            "MobileNetV3Large": tf.keras.applications.MobileNetV3Large,
-            
-            # Others
-            "DenseNet121": tf.keras.applications.DenseNet121,
-            "Xception": tf.keras.applications.Xception,
-        }
-        
-        # Dictionary of attention mechanisms
-        self.attention_types = {
-            "se": squeeze_and_excitation_block,
-            "cbam": cbam_block,
-            "spatial": spatial_attention_block,
-        }
-    
-    def create_model(self, model_name: str, num_classes: int, input_shape: tuple = (224, 224, 3), 
-                     attention_type: str = None, dropout_rate: float = 0.3, 
-                     freeze_layers: int = 0) -> tf.keras.Model:
-        """
-        Create a model with optional attention mechanism.
-        
-        Args:
-            model_name: Name of the base model
-            num_classes: Number of output classes
-            input_shape: Input shape for the model (height, width, channels)
-            attention_type: Type of attention to add (None, 'se', 'cbam', 'spatial')
-            dropout_rate: Dropout rate for the classification head
-            freeze_layers: Number of layers to freeze for transfer learning
-        
-        Returns:
-            A configured Keras model
-            
-        Raises:
-            ValueError: If model_name or attention_type are not supported
-            ImportError: If there's an issue importing the base model
-            RuntimeError: If there's an error during model creation
-        """
-        # Check if model is supported
-        if model_name not in self.base_models:
-            raise ValueError(f"Model '{model_name}' not supported. Available models: "
-                            f"{', '.join(sorted(self.base_models.keys()))}")
-        
-        # Check if attention type is supported
-        if attention_type and attention_type not in self.attention_types:
-            raise ValueError(f"Attention type '{attention_type}' not supported. Available types: "
-                           f"{', '.join(sorted(self.attention_types.keys()))}, or None")
-        
-        print(f"Creating {model_name} model...")
-        
-        try:
-            # Create base model
-            base_model = self.base_models[model_name](
-                include_top=False,
-                weights="imagenet",
-                input_shape=input_shape,
-                pooling="avg"
-            )
-            print(f"Base model created successfully")
-            
-        except ImportError as e:
-            error_msg = f"Failed to import {model_name}: {str(e)}. Make sure TensorFlow version supports this model."
-            print(error_msg)
-            raise ImportError(error_msg) from e
-            
-        except Exception as e:
-            error_msg = f"Error initializing {model_name} base model: {str(e)}"
-            print(error_msg)
-            raise RuntimeError(error_msg) from e
-            
-        try:
-            # Freeze layers if specified
-            if freeze_layers > 0:
-                for layer in base_model.layers[:freeze_layers]:
-                    layer.trainable = False
-                print(f"Froze {freeze_layers} layers for fine-tuning")
-            
-            # Get output from base model
-            x = base_model.output
-            
-            # Apply attention if specified
-            if attention_type:
-                attention_func = self.attention_types[attention_type]
-                print(f"Adding {attention_type} attention mechanism")
-                x = attention_func(x)
-            
-            # Add classification head
-            if dropout_rate > 0:
-                x = Dropout(dropout_rate)(x)
-                print(f"Added dropout with rate {dropout_rate}")
-                
-            # Final layer
-            outputs = Dense(num_classes, activation="softmax")(x)
-            
-            # Create the model
-            model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
-            print(f"Final model created with {len(model.layers)} layers")
-            
-            return model
-            
-        except Exception as e:
-            error_msg = f"Error assembling model architecture: {str(e)}"
-            print(error_msg)
-            raise RuntimeError(error_msg) from e
-    
-    def get_model_from_config(self, model_name: str, num_classes: int) -> tf.keras.Model:
-        """
-        Create a model using configuration from config files.
-        
-        Args:
-            model_name: Name of the model
-            num_classes: Number of output classes
-            
-        Returns:
-            A configured Keras model
-            
-        Raises:
-            ValueError: If the model config can't be found or is invalid
-            RuntimeError: If there's an error creating the model
-        """
-        # Load model-specific configuration
-        try:
-            model_config = self.config_loader.get_model_config(model_name)
-            if not model_config:
-                raise ValueError(f"No configuration found for model {model_name}")
-                
-            config = model_config.get(model_name, {})
-            if not config:
-                raise ValueError(f"Empty configuration for model {model_name}")
-                
-        except ValueError as e:
-            print(f"Warning: {str(e)}. Using defaults.")
-            config = {}
-        except Exception as e:
-            print(f"Warning: Could not load config for {model_name}: {str(e)}. Using defaults.")
-            config = {}
-        
-        # Extract configuration parameters with type checking
-        try:
-            # Get input shape
-            input_shape_config = config.get("input_shape", (224, 224, 3))
-            if isinstance(input_shape_config, list):
-                input_shape = tuple(input_shape_config)
-            else:
-                input_shape = input_shape_config
-                
-            # Get attention type
-            attention_type = config.get("attention_type", None)
-            
-            # Get dropout rate
-            dropout_rate = float(config.get("dropout_rate", 0.3))
-            
-            # Get freeze layers
-            fine_tuning_config = config.get("fine_tuning", {})
-            if not isinstance(fine_tuning_config, dict):
-                fine_tuning_config = {}
-            freeze_layers = int(fine_tuning_config.get("freeze_layers", 0))
-            
-            # Get base model name (without attention suffix)
-            base_model_name = model_name
-            for suffix in ["_SE", "_CBAM", "_Attention"]:
-                if model_name.endswith(suffix):
-                    base_model_name = model_name.split(suffix)[0]
-                    # If no attention_type specified in config, infer from suffix
-                    if not attention_type:
-                        if suffix == "_SE":
-                            attention_type = "se"
-                        elif suffix == "_CBAM":
-                            attention_type = "cbam"
-                        elif suffix == "_Attention":
-                            attention_type = "spatial"
-                    break
-            
-            print(f"Loaded configuration for {model_name}: input_shape={input_shape}, "
-                  f"attention_type={attention_type}, dropout_rate={dropout_rate}, "
-                  f"freeze_layers={freeze_layers}")
-                  
-            # Create and return the model
-            return self.create_model(
-                model_name=base_model_name,
-                num_classes=num_classes,
-                input_shape=input_shape,
-                attention_type=attention_type,
-                dropout_rate=dropout_rate,
-                freeze_layers=freeze_layers
-            )
-            
-        except (ValueError, TypeError) as e:
-            error_msg = f"Invalid configuration for {model_name}: {str(e)}"
-            print(error_msg)
-            raise ValueError(error_msg) from e
-            
-        except Exception as e:
-            error_msg = f"Error creating model from config: {str(e)}"
-            print(error_msg)
-            raise RuntimeError(error_msg) from e```
-
----
-
-### docs/test_data_loader.py
-
-```python
-"""
-Test script for the new data_loader.py implementation - structure verification only.
-This script tests the structure of the data_loader.py and related files without
-requiring TensorFlow to be installed.
-"""
-
-import os
-import sys
-import inspect
-import importlib.util
-
-# Add parent directory to path to enable imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-def check_file_for_function(file_path, function_name):
-    """Check if a file contains a function with the given name."""
-    try:
-        with open(file_path, 'r') as f:
-            content = f.read()
-            return f"def {function_name}" in content
-    except Exception as e:
-        return False
-
-def check_file_for_class_method(file_path, class_name, method_name):
-    """Check if a file contains a class with the given method."""
-    try:
-        with open(file_path, 'r') as f:
-            content = f.read()
-            # This is a very basic check - it might have false positives or negatives
-            class_index = content.find(f"class {class_name}")
-            if class_index == -1:
-                return False
-            method_index = content.find(f"def {method_name}", class_index)
-            return method_index != -1
-    except Exception as e:
-        return False
-
-print("Checking structure of data_loader.py and related files...")
-
-# Check that files exist
-data_loader_path = "/Users/jeremy/Documents/Development/plant2/src/preprocessing/data_loader.py"
-dataset_loader_path = "/Users/jeremy/Documents/Development/plant2/src/preprocessing/dataset_loader.py"
-dataset_pipeline_path = "/Users/jeremy/Documents/Development/plant2/src/preprocessing/dataset_pipeline.py"
-data_transformations_path = "/Users/jeremy/Documents/Development/plant2/src/preprocessing/data_transformations.py"
-
-print("\nChecking file existence:")
-for path, name in [
-    (data_loader_path, "data_loader.py"),
-    (dataset_loader_path, "dataset_loader.py"),
-    (dataset_pipeline_path, "dataset_pipeline.py"),
-    (data_transformations_path, "data_transformations.py")
-]:
-    if os.path.exists(path):
-        print(f"✓ {name} exists")
-    else:
-        print(f"✗ ERROR: {name} does not exist")
-
-# Check for required methods in dataset_loader.py
-print("\nChecking dataset_loader.py for required methods:")
-methods = [
-    "load_dataset_from_directory",
-    "split_dataset",
-    "save_dataset_splits",
-    "get_class_weights"
-]
-
-for method in methods:
-    if check_file_for_class_method(dataset_loader_path, "DatasetLoader", method):
-        print(f"✓ DatasetLoader.{method} found")
-    else:
-        print(f"✗ ERROR: DatasetLoader.{method} not found")
-
-# Check for required methods in data_loader.py
-print("\nChecking data_loader.py for required methods:")
-data_loader_methods = [
-    "load_data",
-    "get_class_weights"
-]
-
-for method in data_loader_methods:
-    if check_file_for_class_method(data_loader_path, "DataLoader", method):
-        print(f"✓ DataLoader.{method} found")
-    else:
-        print(f"✗ ERROR: DataLoader.{method} not found")
-
-# Check for required functions in data_transformations.py
-print("\nChecking data_transformations.py for required functions:")
-transform_funcs = [
-    "get_standard_augmentation_pipeline",
-    "get_enhanced_augmentation_pipeline",
-    "get_batch_augmentation_pipeline",
-    "get_validation_transforms",
-]
-
-for func in transform_funcs:
-    if check_file_for_function(data_transformations_path, func):
-        print(f"✓ {func} found")
-    else:
-        print(f"✗ ERROR: {func} not found")
-
-# Check for required methods in dataset_pipeline.py
-print("\nChecking dataset_pipeline.py for required methods:")
-pipeline_methods = [
-    "create_training_pipeline",
-    "create_validation_pipeline",
-    "create_test_pipeline"
-]
-
-for method in pipeline_methods:
-    if check_file_for_class_method(dataset_pipeline_path, "DatasetPipeline", method):
-        print(f"✓ DatasetPipeline.{method} found")
-    else:
-        print(f"✗ ERROR: DatasetPipeline.{method} not found")
-
-print("\nStructure check complete!")
-print("If all checks passed, the data_loader.py and related files should be properly structured.")
-print("You can now use data_loader.py in your main code once TensorFlow is installed.")```
 
 ---
 
@@ -2262,7 +731,7 @@ def get_paths():
 
 ```yaml
 # src/config/config.yaml
-
+# Configuration file for Plant Disease Detection project
 project:
   name: Plant Disease Detection
   description: Deep learning models for detecting diseases in plants
@@ -2296,16 +765,21 @@ training:
   clip_value: null
   # Learning rate scheduler
   lr_schedule:
-    enabled: true
-    # Type can be: warmup_cosine, warmup_exponential, warmup_step, one_cycle, reduce_on_plateau
+    enabled: false
     type: "warmup_cosine"
-    # Number of warmup epochs
     warmup_epochs: 5
-    # Minimum learning rate
     min_lr: 1.0e-6
-    # For reduce_on_plateau (if used)
     factor: 0.5
     patience: 5
+
+  # Learning rate finder configuration
+  lr_finder:
+    enabled: true
+    min_lr: 1e-7
+    max_lr: 1.0
+    num_steps: 100
+    use_found_lr: true
+    plot_results: true
 
 hardware:
   use_metal: true
@@ -2333,7 +807,6 @@ data:
   use_saved_splits: true   # Whether to use saved splits when available
   splits_dir: "splits"      # Directory name for storing splits
   cache_parsed_images: false  # Whether to cache parsed images in memory
-
 
 data_augmentation:
   enabled: true
@@ -2377,36 +850,25 @@ data_validation:
   max_workers: 16
   max_images_to_check: 10000
 
+# Model quantization settings
+quantization:
+  enabled: false
+  type: "post_training"       # Quantization type: "post_training" or "during_training"
+  format: "int8"               # Quantization format: "int8", "float16", etc.
+  optimize_for_inference: true  # Whether to optimize for inference
+  measure_performance: true     # Whether to measure performance after quantization
 
-  # Model quantization settings
-  quantization:
-    enabled: false
-    # Quantization type: "post_training" or "during_training"
-    type: "post_training"
-    # Quantization format: "int8", "float16", etc.
-    format: "int8"
-    # Whether to optimize for inference
-    optimize_for_inference: true
-    # Whether to measure performance after quantization
-    measure_performance: true
-
-  # Model pruning settings
-  pruning:
-    enabled: false
-    # Pruning type: "magnitude", "structured", etc.
-    type: "magnitude"
-    # Target sparsity (percentage of weights to prune)
-    target_sparsity: 0.5
-    # Whether to perform pruning during training
-    during_training: true
-    # Pruning schedule: "constant" or "polynomial"
-    schedule: "polynomial"
-    # Start step for pruning
-    start_step: 0
-    # End step for pruning
-    end_step: 100
-    # Pruning frequency (every N steps)
-    frequency: 10```
+# Model pruning settings
+pruning:
+  enabled: false
+  type: "magnitude"            # Pruning type: "magnitude", "structured", etc.
+  target_sparsity: 0.5         # Target sparsity (percentage of weights to prune)
+  during_training: true        # Whether to perform pruning during training
+  schedule: "polynomial"       # Pruning schedule: "constant" or "polynomial"
+  start_step: 0                # Start step for pruning
+  end_step: 100                # End step for pruning
+  frequency: 10                # Pruning frequency (every N steps)
+```
 
 ---
 
@@ -2864,20 +1326,22 @@ class ConfigManager:
 ### src/config/model_configs/models.yaml
 
 ```yaml
-# Ideal models for plant disease detection
+# src/config/model_configs/models.yaml
+# Model configurations for Plant Disease Detection project
 
 MobileNet:
-  input_shape: [224, 224, 3]
-  include_top: false
-  weights: "imagenet"
-  pooling: avg
-  dropout_rate: 0.2
-  fine_tuning:
-    enabled: true
-    freeze_layers: 50
-  preprocessing:
-    rescale: 1./255
-    validation_augmentation: false
+    input_shape: [224, 224, 3]
+    include_top: false
+    weights: "imagenet"
+    pooling: avg
+    dropout_rate: 0.2
+    fine_tuning:
+      enabled: true
+      freeze_layers: 50
+    preprocessing:
+      rescale: 1./255
+      validation_augmentation: false
+
 
 MobileNetV2:
   input_shape: [224, 224, 3]
@@ -2891,6 +1355,7 @@ MobileNetV2:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 MobileNetV3Large:
   input_shape: [224, 224, 3]
@@ -2904,6 +1369,7 @@ MobileNetV3Large:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 MobileNetV3Small:
   input_shape: [224, 224, 3]
@@ -2917,6 +1383,7 @@ MobileNetV3Small:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 EfficientNetB0:
   input_shape: [224, 224, 3]
@@ -2930,6 +1397,7 @@ EfficientNetB0:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 EfficientNetB1:
   input_shape: [240, 240, 3]
@@ -2956,6 +1424,7 @@ ResNet50:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 ResNet50V2:
   input_shape: [224, 224, 3]
@@ -2969,6 +1438,7 @@ ResNet50V2:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 Xception:
   input_shape: [299, 299, 3]
@@ -2982,6 +1452,7 @@ Xception:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 DenseNet121:
   input_shape: [224, 224, 3]
@@ -2995,6 +1466,7 @@ DenseNet121:
   preprocessing:
     rescale: 1./255
     validation_augmentation: false
+  
 
 
 EfficientNetB0_SE:
@@ -3016,6 +1488,7 @@ EfficientNetB0_SE:
     learning_rate: 0.0005
     batch_size: 32
     optimizer: adam
+  
 
 EfficientNetB1_SE:
   input_shape: [240, 240, 3]
@@ -5252,6 +3725,8 @@ class SpatialAttention(tf.keras.layers.Layer):
     def __init__(self, kernel_size=7, **kwargs):
         super(SpatialAttention, self).__init__(**kwargs)
         self.kernel_size = kernel_size
+        self.concat_layer = tf.keras.layers.Concatenate(axis=-1)
+        self.multiply_layer = tf.keras.layers.Multiply()
 
     def build(self, input_shape):
         self.conv = tf.keras.layers.Conv2D(
@@ -5263,22 +3738,30 @@ class SpatialAttention(tf.keras.layers.Layer):
             kernel_initializer="he_normal",
             use_bias=False,
         )
+        self.avg_pool = tf.keras.layers.Lambda(
+            lambda x: tf.reduce_mean(x, axis=-1, keepdims=True),
+            name="channel_avg_pool"
+        )
+        self.max_pool = tf.keras.layers.Lambda(
+            lambda x: tf.reduce_max(x, axis=-1, keepdims=True),
+            name="channel_max_pool"
+        )
         super(SpatialAttention, self).build(input_shape)
 
     def call(self, inputs):
         # Average pooling along channel axis
-        avg_pool = tf.reduce_mean(inputs, axis=-1, keepdims=True)
+        avg_pool = self.avg_pool(inputs)
         # Max pooling along channel axis
-        max_pool = tf.reduce_max(inputs, axis=-1, keepdims=True)
+        max_pool = self.max_pool(inputs)
 
         # Concatenate both features
-        concat = tf.concat([avg_pool, max_pool], axis=-1)
+        concat = self.concat_layer([avg_pool, max_pool])
 
         # Apply convolution
         spatial = self.conv(concat)
 
         # Apply attention
-        output = inputs * spatial
+        output = self.multiply_layer([inputs, spatial])
 
         return output
 
@@ -5294,10 +3777,18 @@ class ChannelAttention(tf.keras.layers.Layer):
     def __init__(self, ratio=16, **kwargs):
         super(ChannelAttention, self).__init__(**kwargs)
         self.ratio = ratio
+        self.multiply_layer = tf.keras.layers.Multiply()
 
     def build(self, input_shape):
+        self.input_rank = len(input_shape)
         channels = input_shape[-1]
-        self.gap = tf.keras.layers.GlobalAveragePooling2D()
+        
+        # For 4D inputs (with spatial dimensions)
+        if self.input_rank == 4:
+            self.gap = tf.keras.layers.GlobalAveragePooling2D()
+            self.reshape = tf.keras.layers.Reshape((1, 1, channels))
+        
+        # FC layers for attention
         self.dense1 = tf.keras.layers.Dense(
             channels // self.ratio,
             activation="relu",
@@ -5312,22 +3803,32 @@ class ChannelAttention(tf.keras.layers.Layer):
             use_bias=True,
             bias_initializer="zeros",
         )
+        
         super(ChannelAttention, self).build(input_shape)
 
     def call(self, inputs):
-        # Global average pooling
-        x = self.gap(inputs)
-
-        # MLP with bottleneck
-        x = self.dense1(x)
-        x = self.dense2(x)
-
-        # Reshape to match the input tensor's shape
-        x = tf.reshape(x, [-1, 1, 1, tf.shape(inputs)[-1]])
-
-        # Apply attention
-        output = inputs * x
-
+        # Handle different input shapes
+        if self.input_rank == 4:
+            # Input has spatial dimensions, apply pooling
+            x = self.gap(inputs)
+            
+            # MLP with bottleneck
+            x = self.dense1(x)
+            x = self.dense2(x)
+            
+            # Reshape for broadcasting
+            x = self.reshape(x)
+            
+            # Apply attention
+            output = self.multiply_layer([inputs, x])
+        else:
+            # Input already pooled (2D), just apply FC layers
+            x = self.dense1(inputs)
+            x = self.dense2(x)
+            
+            # Element-wise multiplication for 2D inputs
+            output = self.multiply_layer([inputs, x])
+            
         return output
 
     def get_config(self):
@@ -5345,19 +3846,29 @@ class CBAMBlock(tf.keras.layers.Layer):
         self.kernel_size = kernel_size
 
     def build(self, input_shape):
+        self.input_rank = len(input_shape)
         self.channel_attention = ChannelAttention(ratio=self.ratio)
-        self.spatial_attention = SpatialAttention(kernel_size=self.kernel_size)
+        
+        # Only apply spatial attention if we have spatial dimensions
+        if self.input_rank == 4:
+            self.spatial_attention = SpatialAttention(kernel_size=self.kernel_size)
+            
         super(CBAMBlock, self).build(input_shape)
 
     def call(self, inputs):
         # Channel attention
         x = self.channel_attention(inputs)
 
-        # Spatial attention
-        x = self.spatial_attention(x)
+        # Spatial attention only if we have spatial dimensions
+        if self.input_rank == 4:
+            x = self.spatial_attention(x)
 
         return x
 
+    def compute_output_shape(self, input_shape):
+        # Output shape is the same as input shape
+        return input_shape
+        
     def get_config(self):
         config = super(CBAMBlock, self).get_config()
         config.update({"ratio": self.ratio, "kernel_size": self.kernel_size})
@@ -5377,6 +3888,10 @@ class SEBlock(tf.keras.layers.Layer):
 
     def call(self, inputs):
         return self.channel_attention(inputs)
+        
+    def compute_output_shape(self, input_shape):
+        # Output shape is the same as input shape
+        return input_shape
 
     def get_config(self):
         config = super(SEBlock, self).get_config()
@@ -5406,13 +3921,17 @@ def add_attention_to_model(model, attention_type="se", ratio=16, kernel_size=7):
     else:
         raise ValueError(f"Unsupported attention type: {attention_type}")
 
-    # Apply attention to the output of the model
-    x = attention_layer(model.output)
+    # Extract the base model's input and output
+    inputs = model.input
+    
+    # Apply attention to the model's output
+    x = model.output
+    outputs = attention_layer(x)
 
     # Create a new model
-    from tensorflow.keras import Model
+    from tensorflow.keras.models import Model
 
-    enhanced_model = Model(inputs=model.input, outputs=x)
+    enhanced_model = Model(inputs=inputs, outputs=outputs)
 
     return enhanced_model
 
@@ -5449,38 +3968,8 @@ def squeeze_and_excitation_block(input_tensor, ratio=16):
     Returns:
         Output tensor with SE applied
     """
-    channels = K.int_shape(input_tensor)[-1]
-
-    # Squeeze operation (global average pooling)
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # Already pooled, use as is
-        x = input_tensor
-    else:
-        # Still has spatial dimensions, apply pooling
-        x = GlobalAveragePooling2D()(input_tensor)
-
-    # Excitation operation (two FC layers with bottleneck)
-    x = Dense(channels // ratio, activation="relu")(x)
-    x = Dense(channels, activation="sigmoid")(x)
-
-    # Scale the input tensor
-    x = Reshape((1, 1, channels))(x)
-    
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # For already pooled input, we need to reshape both tensors to be compatible
-        input_reshaped = Reshape((1, 1, channels))(input_tensor)
-        x = multiply([input_reshaped, x])
-        # Flatten back to match original shape
-        x = Flatten()(x)
-    else:
-        # For spatial inputs, apply scaling as usual
-        x = multiply([input_tensor, x])
-
-    return x
+    # Use the SEBlock layer directly
+    return SEBlock(ratio=ratio)(input_tensor)
 
 
 class ResidualAttention(tf.keras.layers.Layer):
@@ -5491,19 +3980,32 @@ class ResidualAttention(tf.keras.layers.Layer):
     residual connection to maintain gradient flow.
     """
 
-    def __init__(self, channels, reduction=16):
+    def __init__(self, reduction=16, **kwargs):
         """
         Initialize the Residual Attention module.
 
         Args:
-            channels: Number of input channels
             reduction: Reduction ratio for the bottleneck
         """
-        super(ResidualAttention, self).__init__()
-        self.avg_pool = GlobalAveragePooling2D()
-        self.dense1 = Dense(channels // reduction, activation="relu")
-        self.dense2 = Dense(channels, activation="sigmoid")
-        self.reshape = Reshape((1, 1, channels))
+        super(ResidualAttention, self).__init__(**kwargs)
+        self.reduction = reduction
+        self.multiply_layer = tf.keras.layers.Multiply()
+
+    def build(self, input_shape):
+        channels = input_shape[-1]
+        self.avg_pool = tf.keras.layers.GlobalAveragePooling2D()
+        self.dense1 = tf.keras.layers.Dense(
+            channels // self.reduction, 
+            activation="relu",
+            kernel_initializer="he_normal"
+        )
+        self.dense2 = tf.keras.layers.Dense(
+            channels, 
+            activation="sigmoid",
+            kernel_initializer="he_normal"
+        )
+        self.reshape = tf.keras.layers.Reshape((1, 1, channels))
+        super(ResidualAttention, self).build(input_shape)
 
     def call(self, inputs):
         """
@@ -5515,12 +4017,16 @@ class ResidualAttention(tf.keras.layers.Layer):
         Returns:
             Output tensor with attention applied
         """
-        b, h, w, c = inputs.shape
         y = self.avg_pool(inputs)
         y = self.dense1(y)
         y = self.dense2(y)
         y = self.reshape(y)
-        return inputs * y
+        return self.multiply_layer([inputs, y])
+        
+    def get_config(self):
+        config = super(ResidualAttention, self).get_config()
+        config.update({"reduction": self.reduction})
+        return config
 
 
 class ECABlock(tf.keras.layers.Layer):
@@ -5531,16 +4037,16 @@ class ECABlock(tf.keras.layers.Layer):
     1D convolutions instead of fully connected layers.
     """
 
-    def __init__(self, kernel_size=3):
+    def __init__(self, kernel_size=3, **kwargs):
         """
         Initialize the ECA block.
 
         Args:
             kernel_size: Size of the 1D convolution kernel
         """
-        super(ECABlock, self).__init__()
+        super(ECABlock, self).__init__(**kwargs)
         self.kernel_size = kernel_size
-        self.avg_pool = GlobalAveragePooling2D()
+        self.multiply_layer = tf.keras.layers.Multiply()
 
     def build(self, input_shape):
         """
@@ -5550,9 +4056,13 @@ class ECABlock(tf.keras.layers.Layer):
             input_shape: Shape of the input tensor
         """
         self.channels = input_shape[-1]
+        self.avg_pool = tf.keras.layers.GlobalAveragePooling2D()
         self.conv = tf.keras.layers.Conv1D(
             filters=1, kernel_size=self.kernel_size, padding="same", use_bias=False
         )
+        self.reshape_1 = tf.keras.layers.Reshape((1, self.channels))
+        self.activation = tf.keras.layers.Activation('sigmoid')
+        self.reshape_2 = tf.keras.layers.Reshape((1, 1, self.channels))
         super(ECABlock, self).build(input_shape)
 
     def call(self, inputs):
@@ -5565,34 +4075,28 @@ class ECABlock(tf.keras.layers.Layer):
         Returns:
             Output tensor with ECA applied
         """
-        # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-        input_shape = tf.keras.backend.int_shape(inputs)
+        # Global average pooling
+        y = self.avg_pool(inputs)
         
-        if len(input_shape) == 2:
-            # Already pooled, use as is
-            y = inputs
-        else:
-            # Global average pooling
-            y = self.avg_pool(inputs)
-
-        # Reshape to [batch, channels, 1]
-        y = tf.reshape(y, [-1, 1, self.channels])
-
+        # Reshape to [batch, 1, channels]
+        y = self.reshape_1(y)
+        
         # Apply 1D convolution
         y = self.conv(y)
-
-        # Reshape and apply sigmoid activation
-        y = tf.reshape(y, [-1, self.channels])
-        y = tf.nn.sigmoid(y)
-
-        if len(input_shape) == 2:
-            # For already pooled input, multiply directly
-            return inputs * y
-        else:
-            # Reshape to [batch, 1, 1, channels] for broadcasting
-            y = tf.reshape(y, [-1, 1, 1, self.channels])
-            # Scale the input tensor
-            return inputs * y
+        
+        # Apply sigmoid activation
+        y = self.activation(y)
+        
+        # Reshape for broadcasting
+        y = self.reshape_2(y)
+        
+        # Apply attention
+        return self.multiply_layer([inputs, y])
+        
+    def get_config(self):
+        config = super(ECABlock, self).get_config()
+        config.update({"kernel_size": self.kernel_size})
+        return config
 
 
 def spatial_attention_block(input_tensor):
@@ -5605,27 +4109,8 @@ def spatial_attention_block(input_tensor):
     Returns:
         Output tensor with spatial attention applied
     """
-    # Check if input has spatial dimensions
-    input_shape = tf.keras.backend.int_shape(input_tensor)
-    
-    # If input is already flattened (no spatial dimensions), return as is
-    if len(input_shape) == 2:
-        return input_tensor
-        
-    # Compute channel-wise average and max pooling
-    avg_pool = tf.reduce_mean(input_tensor, axis=-1, keepdims=True)
-    max_pool = tf.reduce_max(input_tensor, axis=-1, keepdims=True)
-
-    # Concatenate the pooled features
-    concat = tf.concat([avg_pool, max_pool], axis=-1)
-
-    # Apply convolution to generate spatial attention map
-    spatial_map = Conv2D(
-        filters=1, kernel_size=7, padding="same", activation="sigmoid"
-    )(concat)
-
-    # Apply spatial attention
-    return multiply([input_tensor, spatial_map])
+    # Use the SpatialAttention layer directly
+    return SpatialAttention(kernel_size=7)(input_tensor)
 
 
 def cbam_block(input_tensor, ratio=16):
@@ -5641,46 +4126,9 @@ def cbam_block(input_tensor, ratio=16):
     Returns:
         Output tensor with CBAM applied
     """
-    # Apply channel attention similar to SE block
-    channels = K.int_shape(input_tensor)[-1]
-
-    # Channel attention
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # Already pooled, use as is
-        avg_pool = input_tensor
-        max_pool = input_tensor  # For already pooled data, we use the same values
-    else:
-        # Still has spatial dimensions, apply pooling
-        avg_pool = GlobalAveragePooling2D()(input_tensor)
-        max_pool = tf.reduce_max(input_tensor, axis=[1, 2])
-
-    avg_pool = Dense(channels // ratio, activation="relu")(avg_pool)
-    avg_pool = Dense(channels, activation="linear")(avg_pool)
-
-    max_pool = Dense(channels // ratio, activation="relu")(max_pool)
-    max_pool = Dense(channels, activation="linear")(max_pool)
-
-    channel_attention = tf.nn.sigmoid(avg_pool + max_pool)
-    channel_attention = Reshape((1, 1, channels))(channel_attention)
-    
-    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
-    input_shape = K.int_shape(input_tensor)
-    if len(input_shape) == 2:
-        # For already pooled input, we need to reshape both tensors to be compatible
-        input_reshaped = Reshape((1, 1, channels))(input_tensor)
-        channel_refined = multiply([input_reshaped, channel_attention])
-        # Flatten back to match original shape
-        channel_refined = Flatten()(channel_refined)
-    else:
-        # For spatial inputs, apply scaling as usual
-        channel_refined = multiply([input_tensor, channel_attention])
-
-    # Spatial attention
-    spatial_attention = spatial_attention_block(channel_refined)
-
-    return spatial_attention
+    # Use the full CBAMBlock Keras layer instead of functional API
+    cbam = CBAMBlock(ratio=ratio)(input_tensor)
+    return cbam
 
 
 class PyramidPoolingModule(tf.keras.layers.Layer):
@@ -5935,32 +4383,23 @@ def create_resnet_with_attention(
     else:
         raise ValueError(f"Unsupported model name: {base_model_name}")
 
-    # Define where to add CBAM attention (after each residual block)
-    attention_indices = []
-    for i, layer in enumerate(base_model.layers):
-        if "add" in layer.name.lower():  # Find residual connections
-            attention_indices.append(i)
-
-    # Build the model with attention
-    inputs = base_model.input
-    x = inputs
-
-    # Process through base model and add attention after each residual block
-    for i, layer in enumerate(base_model.layers):
-        x = layer(x)
-        if i in attention_indices:
-            x = cbam_block(x)
-
-    # Classifier head
-    x = GlobalAveragePooling2D()(x)
-    x = BatchNormalization()(x)
-    x = Dense(512, activation="relu")(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    outputs = Dense(num_classes, activation="softmax")(x)
+    # We'll use a different approach instead of iterating through layers
+    # Get base model features and add attention mechanism to the end
+    features = base_model.output
+    
+    # Add CBAM attention mechanism
+    attention_features = CBAMBlock()(features)
+    
+    # Add classification head
+    x = tf.keras.layers.GlobalAveragePooling2D()(attention_features)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dense(512, activation="relu")(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
 
     # Create and return the model
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
 
     return model
 ```
@@ -6167,6 +4606,7 @@ class ModelFactory:
                 if attention_type:
                     attention_func = self.attention_types[attention_type]
                     print(f"Adding {attention_type} attention mechanism")
+                    print(f"Shape of tensor before attention: {x.shape}")
                     x = attention_func(x)
 
                 # Add classification head
@@ -9098,13 +7538,10 @@ from tqdm import tqdm
 import tensorflow as tf
 import numpy as np
 
-# Configure TensorFlow to use CPU (if needed)
-# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
 
 def preprocess_image(src_path, dst_path, target_size=(224, 224)):
     """Preprocess a single image and save it to the destination path.
-    
+
     Args:
         src_path: Source image path
         dst_path: Destination image path
@@ -9113,43 +7550,45 @@ def preprocess_image(src_path, dst_path, target_size=(224, 224)):
     try:
         # Ensure destination directory exists
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-        
+
         # If we just want to copy the file without processing
         if target_size is None:
             shutil.copy2(src_path, dst_path)
             return True
-        
+
         # Load and preprocess the image
         img = tf.io.read_file(str(src_path))
-        
+
         # Decode based on extension
-        if src_path.lower().endswith(('.jpg', '.jpeg')):
+        if src_path.lower().endswith((".jpg", ".jpeg")):
             img = tf.image.decode_jpeg(img, channels=3)
-        elif src_path.lower().endswith('.png'):
+        elif src_path.lower().endswith(".png"):
             img = tf.image.decode_png(img, channels=3)
         else:
             img = tf.image.decode_image(img, channels=3, expand_animations=False)
-        
+
         # Resize to target size
         img = tf.image.resize(img, target_size)
-        
+
         # Ensure image is in 0-255 range and uint8 format
         img = tf.clip_by_value(img, 0, 255)
         img = tf.cast(img, tf.uint8)
-        
+
         # Save processed image
         img_encoded = tf.image.encode_jpeg(img, quality=95)
         tf.io.write_file(str(dst_path), img_encoded)
-        
+
         return True
     except Exception as e:
         print(f"Error processing {src_path}: {e}")
         return False
 
 
-def preprocess_dataset(raw_dir, processed_dir, target_size=(224, 224), num_workers=4, copy_only=False):
+def preprocess_dataset(
+    raw_dir, processed_dir, target_size=(224, 224), num_workers=4, copy_only=False
+):
     """Preprocess all images in the raw directory and save to processed directory.
-    
+
     Args:
         raw_dir: Source directory with raw images
         processed_dir: Destination directory for processed images
@@ -9159,71 +7598,81 @@ def preprocess_dataset(raw_dir, processed_dir, target_size=(224, 224), num_worke
     """
     raw_dir = Path(raw_dir)
     processed_dir = Path(processed_dir)
-    
+
     # Ensure processed directory exists
     processed_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Find all class directories
     class_dirs = [d for d in raw_dir.iterdir() if d.is_dir()]
-    
+
     if not class_dirs:
         print(f"No class directories found in {raw_dir}")
         # Check if there are image files directly in the raw directory
-        image_files = list(raw_dir.glob("*.jpg")) + list(raw_dir.glob("*.jpeg")) + list(raw_dir.glob("*.png"))
+        image_files = (
+            list(raw_dir.glob("*.jpg"))
+            + list(raw_dir.glob("*.jpeg"))
+            + list(raw_dir.glob("*.png"))
+        )
         if image_files:
-            print(f"Found {len(image_files)} images directly in {raw_dir}. These should be organized into class directories.")
+            print(
+                f"Found {len(image_files)} images directly in {raw_dir}. These should be organized into class directories."
+            )
         return
-    
+
     print(f"Found {len(class_dirs)} class directories")
-    
+
     # Initialize counters
     total_images = 0
     processed_images = 0
     failed_images = 0
-    
+
     # Process each class directory
     for class_dir in class_dirs:
         class_name = class_dir.name
         print(f"Processing class: {class_name}")
-        
+
         # Create corresponding directory in processed_dir
         dest_class_dir = processed_dir / class_name
         dest_class_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Find all image files in this class
         image_files = []
         for ext in ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"]:
             image_files.extend(list(class_dir.glob(ext)))
-        
+
         if not image_files:
             print(f"  No images found in {class_dir}")
             continue
-        
+
         print(f"  Found {len(image_files)} images")
         total_images += len(image_files)
-        
+
         # Prepare preprocessing tasks
         tasks = []
         for src_path in image_files:
             # Destination filename - keep the same as source
             dst_filename = src_path.name
             dst_path = dest_class_dir / dst_filename
-            
+
             # Add this task
             tasks.append((str(src_path), str(dst_path)))
-        
+
         # Process images in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             # If copy_only is True, set target_size to None
             size = None if copy_only else target_size
-            
+
             futures = {
                 executor.submit(preprocess_image, src, dst, size): (src, dst)
                 for src, dst in tasks
             }
-            
+
             # Track progress
-            for future in tqdm(concurrent.futures.as_completed(futures), total=len(tasks), desc=f"Processing {class_name}"):
+            for future in tqdm(
+                concurrent.futures.as_completed(futures),
+                total=len(tasks),
+                desc=f"Processing {class_name}",
+            ):
                 src, dst = futures[future]
                 try:
                     success = future.result()
@@ -9234,56 +7683,72 @@ def preprocess_dataset(raw_dir, processed_dir, target_size=(224, 224), num_worke
                 except Exception as e:
                     print(f"Error processing {src}: {e}")
                     failed_images += 1
-    
+
     # Print summary
     print("\nPreprocessing complete!")
     print(f"Total images: {total_images}")
     print(f"Successfully processed: {processed_images}")
     print(f"Failed: {failed_images}")
-    
+
     if processed_images > 0:
         success_rate = (processed_images / total_images) * 100
         print(f"Success rate: {success_rate:.2f}%")
-    
+
     print(f"\nProcessed data saved to: {processed_dir}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Preprocess plant disease dataset")
-    parser.add_argument("--raw_dir", type=str, default="data/raw", help="Directory with raw images")
-    parser.add_argument("--processed_dir", type=str, default="data/processed", help="Directory for processed images")
-    parser.add_argument("--height", type=int, default=224, help="Target height for resizing")
-    parser.add_argument("--width", type=int, default=224, help="Target width for resizing")
-    parser.add_argument("--workers", type=int, default=4, help="Number of worker threads")
-    parser.add_argument("--copy_only", action="store_true", help="Just copy files without processing")
-    
+    parser.add_argument(
+        "--raw_dir", type=str, default="data/raw", help="Directory with raw images"
+    )
+    parser.add_argument(
+        "--processed_dir",
+        type=str,
+        default="data/processed",
+        help="Directory for processed images",
+    )
+    parser.add_argument(
+        "--height", type=int, default=224, help="Target height for resizing"
+    )
+    parser.add_argument(
+        "--width", type=int, default=224, help="Target width for resizing"
+    )
+    parser.add_argument(
+        "--workers", type=int, default=4, help="Number of worker threads"
+    )
+    parser.add_argument(
+        "--copy_only", action="store_true", help="Just copy files without processing"
+    )
+
     args = parser.parse_args()
-    
+
     # Make paths absolute if they're relative
     base_dir = Path.cwd()
     raw_dir = Path(args.raw_dir)
     if not raw_dir.is_absolute():
         raw_dir = base_dir / raw_dir
-    
+
     processed_dir = Path(args.processed_dir)
     if not processed_dir.is_absolute():
         processed_dir = base_dir / processed_dir
-    
+
     # Run preprocessing
     print(f"Processing images from {raw_dir} to {processed_dir}")
     print(f"Target size: {args.height}x{args.width}")
-    
+
     preprocess_dataset(
         raw_dir,
         processed_dir,
         target_size=(args.height, args.width),
         num_workers=args.workers,
-        copy_only=args.copy_only
+        copy_only=args.copy_only,
     )
 
 
 if __name__ == "__main__":
-    main()```
+    main()
+```
 
 ---
 
@@ -9685,7 +8150,7 @@ if __name__ == "__main__":
 ### src/scripts/train.py
 
 ```python
-#!/usr/bin/env python3
+# src/scripts/train.py
 """
 Train a model on a dataset with enhanced features
 """
@@ -9700,12 +8165,13 @@ import time
 from src.config.config import get_paths
 from src.config.config_loader import ConfigLoader
 from src.preprocessing.data_loader import DataLoader
-from src.models.enhanced_model_factory import EnhancedModelFactory
+from src.models.model_factory import ModelFactory
 from src.training.trainer import Trainer
 from src.training.lr_finder import (
     find_optimal_learning_rate,
     LearningRateFinderCallback,
 )
+
 from src.utils.seed_utils import set_global_seeds
 from src.utils.hardware_utils import configure_hardware, print_hardware_summary
 from src.model_registry.registry_manager import ModelRegistryManager
@@ -9799,7 +8265,7 @@ def main():
     print(f"Loaded dataset with {len(class_names)} classes")
 
     # Create enhanced model factory
-    model_factory = EnhancedModelFactory()
+    model_factory = ModelFactory()
 
     # Get model architecture
     model_name = args.model
@@ -10344,18 +8810,44 @@ class WarmupScheduler(tf.keras.callbacks.Callback):
         # Ensure learning rate is at least min_lr
         lr = max(self.min_lr, lr)
 
+        # Ensure lr is a numeric value, not a string
+        if isinstance(lr, str):
+            try:
+                lr = float(lr)
+            except ValueError:
+                print(f"Warning: Could not convert learning rate '{lr}' to float")
+                return
+
         # Set the learning rate - handle LossScaleOptimizer for mixed precision
         try:
-            if isinstance(
-                self.model.optimizer, tf.keras.mixed_precision.LossScaleOptimizer
-            ):
-                # For LossScaleOptimizer in mixed precision
-                tf.keras.backend.set_value(
-                    self.model.optimizer.inner_optimizer.learning_rate, lr
-                )
+            # Get optimizer and check type
+            optimizer = self.model.optimizer
+            # For TensorFlow 2.16.2 LossScaleOptimizer
+            if isinstance(optimizer, tf.keras.mixed_precision.LossScaleOptimizer):
+                inner_opt = optimizer.inner_optimizer
+                # Try different attribute names - TF 2.16 uses _learning_rate
+                if hasattr(inner_opt, "_learning_rate"):
+                    tf.keras.backend.set_value(inner_opt._learning_rate, lr)
+                elif hasattr(inner_opt, "learning_rate"):
+                    tf.keras.backend.set_value(inner_opt.learning_rate, lr)
+                elif hasattr(inner_opt, "lr"):
+                    tf.keras.backend.set_value(inner_opt.lr, lr)
+                else:
+                    print(
+                        f"Warning: Could not find learning rate attribute in inner optimizer"
+                    )
             else:
-                # For regular optimizers
-                tf.keras.backend.set_value(self.model.optimizer.learning_rate, lr)
+                # For regular optimizers - try different attribute names
+                if hasattr(optimizer, "_learning_rate"):
+                    tf.keras.backend.set_value(optimizer._learning_rate, lr)
+                elif hasattr(optimizer, "learning_rate"):
+                    tf.keras.backend.set_value(optimizer.learning_rate, lr)
+                elif hasattr(optimizer, "lr"):
+                    tf.keras.backend.set_value(optimizer.lr, lr)
+                else:
+                    print(
+                        f"Warning: Could not find learning rate attribute in optimizer"
+                    )
         except Exception as e:
             print(f"Warning: Failed to set learning rate: {e}")
             print(f"Optimizer type: {type(self.model.optimizer).__name__}")
@@ -10435,7 +8927,34 @@ class OneCycleLRScheduler(tf.keras.callbacks.Callback):
 
     def on_train_begin(self, logs=None):
         """Set initial learning rate at the start of training."""
-        tf.keras.backend.set_value(self.model.optimizer.lr, self.initial_lr)
+        try:
+            # Check optimizer type by name to avoid import issues
+            optimizer = self.model.optimizer
+
+            # For TensorFlow 2.16.2 LossScaleOptimizer
+            if isinstance(optimizer, tf.keras.mixed_precision.LossScaleOptimizer):
+                inner_opt = optimizer.inner_optimizer
+                if hasattr(inner_opt, "_learning_rate"):
+                    tf.keras.backend.set_value(
+                        inner_opt._learning_rate, self.initial_lr
+                    )
+                elif hasattr(inner_opt, "learning_rate"):
+                    tf.keras.backend.set_value(inner_opt.learning_rate, self.initial_lr)
+                elif hasattr(inner_opt, "lr"):
+                    tf.keras.backend.set_value(inner_opt.lr, self.initial_lr)
+            else:
+                # For regular optimizers
+                if hasattr(optimizer, "_learning_rate"):
+                    tf.keras.backend.set_value(
+                        optimizer._learning_rate, self.initial_lr
+                    )
+                elif hasattr(optimizer, "learning_rate"):
+                    tf.keras.backend.set_value(optimizer.learning_rate, self.initial_lr)
+                elif hasattr(optimizer, "lr"):
+                    tf.keras.backend.set_value(optimizer.lr, self.initial_lr)
+        except Exception as e:
+            print(f"Warning: Failed to set initial learning rate: {e}")
+            print(f"Optimizer type: {type(self.model.optimizer).__name__}")
 
     def on_batch_end(self, batch, logs=None):
         """Update learning rate at the end of each batch.
@@ -10472,19 +8991,29 @@ class OneCycleLRScheduler(tf.keras.callbacks.Callback):
 
         # Set learning rate - handle LossScaleOptimizer for mixed precision
         try:
-            if isinstance(
-                self.model.optimizer, tf.keras.mixed_precision.LossScaleOptimizer
-            ):
-                # For LossScaleOptimizer in mixed precision
-                tf.keras.backend.set_value(
-                    self.model.optimizer.inner_optimizer.learning_rate, lr
-                )
+            optimizer = self.model.optimizer
+
+            # For TensorFlow 2.16.2 LossScaleOptimizer
+            if isinstance(optimizer, tf.keras.mixed_precision.LossScaleOptimizer):
+                inner_opt = optimizer.inner_optimizer
+                if hasattr(inner_opt, "_learning_rate"):
+                    tf.keras.backend.set_value(inner_opt._learning_rate, lr)
+                elif hasattr(inner_opt, "learning_rate"):
+                    tf.keras.backend.set_value(inner_opt.learning_rate, lr)
+                elif hasattr(inner_opt, "lr"):
+                    tf.keras.backend.set_value(inner_opt.lr, lr)
             else:
                 # For regular optimizers
-                tf.keras.backend.set_value(self.model.optimizer.learning_rate, lr)
+                if hasattr(optimizer, "_learning_rate"):
+                    tf.keras.backend.set_value(optimizer._learning_rate, lr)
+                elif hasattr(optimizer, "learning_rate"):
+                    tf.keras.backend.set_value(optimizer.learning_rate, lr)
+                elif hasattr(optimizer, "lr"):
+                    tf.keras.backend.set_value(optimizer.lr, lr)
         except Exception as e:
             print(f"Warning: Failed to set learning rate: {e}")
             print(f"Optimizer type: {type(self.model.optimizer).__name__}")
+            # Continue execution without failing
 
         # Log the learning rate
         self.history.setdefault("lr", []).append(lr)
@@ -10581,7 +9110,7 @@ def get_warmup_scheduler(
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-from tensorflow.keras import backend as K
+import tensorflow.keras.backend as K
 from scipy.signal import savgol_filter
 import time
 import logging
@@ -11384,6 +9913,8 @@ class AdaptiveLearningRateCallback(tf.keras.callbacks.Callback):
 ### src/training/model_trainer.py
 
 ```python
+# src/training/model_trainer.py
+# Compare this snippet from src/training/training_pipeline.py:
 """
 Model trainer module for handling individual model training processes.
 This is extracted from main.py to separate the training logic from the command-line interface.
@@ -11417,7 +9948,7 @@ def train_model(
     attention_type: Optional[str] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
     """Train a single model and return results
-    
+
     Args:
         model_name: Name of the model to train
         config: Configuration dictionary
@@ -11430,10 +9961,10 @@ def train_model(
         batch_logger: Logger for batch operations (optional)
         resume: Whether to resume training from latest checkpoint
         attention_type: Type of attention mechanism to use (optional)
-        
+
     Returns:
         Tuple of (success_flag, metrics_dict)
-        
+
     Raises:
         ValueError: If model configuration is invalid
         RuntimeError: If an error occurs during model creation or training
@@ -11448,6 +9979,7 @@ def train_model(
     try:
         # Get model hyperparameters (combining defaults with model-specific)
         from src.config.config_loader import ConfigLoader
+
         config_loader = ConfigLoader()
         hyperparams = config_loader.get_hyperparameters(model_name, config)
 
@@ -11469,11 +10001,13 @@ def train_model(
         if attention_type:
             print(f"Using {model_name} with {attention_type} attention")
             if batch_logger:
-                batch_logger.log_info(f"Using {model_name} with {attention_type} attention")
+                batch_logger.log_info(
+                    f"Using {model_name} with {attention_type} attention"
+                )
             model = model_factory.create_model(
-                model_name=model_name, 
+                model_name=model_name,
                 num_classes=len(class_names) if class_names else None,
-                attention_type=attention_type
+                attention_type=attention_type,
             )
         else:
             # Get model from config (which may include attention if it's in the model name)
@@ -11481,8 +10015,7 @@ def train_model(
             if batch_logger:
                 batch_logger.log_info(f"Creating model {model_name} from configuration")
             model = model_factory.get_model_from_config(
-                model_name, 
-                num_classes=len(class_names) if class_names else None
+                model_name, num_classes=len(class_names) if class_names else None
             )
 
         # Apply learning rate finder if configured
@@ -11539,6 +10072,7 @@ def train_model(
 
         # Create the trainer and train the model
         from src.training.trainer import Trainer
+
         trainer = Trainer(config)
         model, history, metrics = trainer.train(
             model, model_name, train_data, val_data, test_data, resume=resume
@@ -11561,9 +10095,10 @@ def train_model(
         # Clean up memory
         del model
         tf.keras.backend.clear_session()
-        
+
         # Explicitly run garbage collection
         import gc
+
         gc.collect()
 
         print(f"Training completed for {model_name}")
@@ -11604,12 +10139,14 @@ def train_model(
             del model
         except:
             pass
-        
+
         tf.keras.backend.clear_session()
         import gc
+
         gc.collect()
 
-        return False, {"error": str(e), "traceback": trace}```
+        return False, {"error": str(e), "traceback": trace}
+```
 
 ---
 
@@ -12664,7 +11201,7 @@ from src.config.config_manager import ConfigManager
 def handle_cli_args() -> Tuple[ConfigManager, Dict[str, Any], bool]:
     """
     Parse command-line arguments and load configuration.
-    
+
     Returns:
         Tuple containing:
             - ConfigManager: Initialized configuration manager
@@ -12674,31 +11211,32 @@ def handle_cli_args() -> Tuple[ConfigManager, Dict[str, Any], bool]:
     # Set up configuration manager
     config_manager = ConfigManager()
     args = config_manager.parse_args()
-    
+
     # Check if we should just print hardware summary
     should_print_hardware = config_manager.should_print_hardware_summary()
-    
+
     # Load configuration with command-line overrides
     config = config_manager.load_config()
-    
+
     return config_manager, config, should_print_hardware
 
 
 def get_project_info(config: Dict[str, Any]) -> Tuple[str, str]:
     """
     Extract project name and version from configuration.
-    
+
     Args:
         config: Configuration dictionary
-        
+
     Returns:
         Tuple containing project name and version
     """
     project_info = config.get("project", {})
-    project_name = project_info.get("name", "Plant Disease Detection")
+    project_name = project_info.get("name", "DeepCropDX")
     project_version = project_info.get("version", "1.0.0")
-    
-    return project_name, project_version```
+
+    return project_name, project_version
+```
 
 ---
 
@@ -13132,7 +11670,6 @@ from datetime import datetime
 from tqdm.auto import tqdm
 import numpy as np
 
-# Import psutil conditionally for hardware monitoring
 try:
     import psutil
 
@@ -13160,8 +11697,7 @@ class Logger:
 
         # Set up log directory
         if log_dir is None:
-            # If no log_dir is provided, use trials directory
-            # This shouldn't happen with our configuration
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.log_dir = self.paths.trials_dir / f"{name}_{timestamp}"
         else:
@@ -14526,6 +13062,6 @@ def set_global_seeds(seed=42):
 
 ## Summary
 
-Total files: 50
-- Python files: 47
+Total files: 48
+- Python files: 45
 - YAML files: 3

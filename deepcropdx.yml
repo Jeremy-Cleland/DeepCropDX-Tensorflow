@@ -64,6 +64,7 @@ dependencies:
   - pymc
   - keras
   - pydot
+  - tabulate
   - pip:
       - tensorflow-macos
       - tensorflow-metal

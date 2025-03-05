@@ -350,6 +350,18 @@ class ReportGenerator:
             models_data: List of dictionaries with model results
             output_path: Path to save the report
         """
+        # Convert string metrics to numeric
+        for model in models_data:
+            for key, value in model["metrics"].items():
+                if isinstance(value, str):
+                    try:
+                        if value.lower() == "n/a":
+                            model["metrics"][key] = 0.0
+                        else:
+                            model["metrics"][key] = float(value)
+                    except (ValueError, TypeError):
+                        model["metrics"][key] = 0.0
+
         if output_path is None:
             output_path = self.paths.trials_dir / "model_comparison.html"
 
@@ -454,8 +466,33 @@ class ReportGenerator:
         plt.close()
 
     def _render_comparison_template(self, context):
-        """Render HTML comparison report using Jinja2 template"""
-        # Template implementation for comparison report
+        """
+        Prepare and render the comparison template.
+
+        Args:
+            context: The template context data
+
+        Returns:
+            str: Rendered HTML content
+        """
+        # Prepare models_data to ensure metrics are numeric
+        for model in context["models_data"]:
+            for key, value in model["metrics"].items():
+                # Convert string metrics to numbers
+                if isinstance(value, str):
+                    try:
+                        if value.lower() == "n/a":
+                            model["metrics"][key] = 0.0
+                        else:
+                            model["metrics"][key] = float(value)
+                    except (ValueError, TypeError):
+                        # If conversion fails, set to 0
+                        model["metrics"][key] = 0.0
+                elif value is None:
+                    model["metrics"][key] = 0.0
+
+        # Continue with template rendering...
+        # Existing rendering code...
         template_str = """
         <!DOCTYPE html>
         <html>

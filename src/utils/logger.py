@@ -9,7 +9,6 @@ from datetime import datetime
 from tqdm.auto import tqdm
 import numpy as np
 
-# Import psutil conditionally for hardware monitoring
 try:
     import psutil
 
@@ -37,8 +36,7 @@ class Logger:
 
         # Set up log directory
         if log_dir is None:
-            # If no log_dir is provided, use trials directory
-            # This shouldn't happen with our configuration
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.log_dir = self.paths.trials_dir / f"{name}_{timestamp}"
         else:
@@ -188,6 +186,31 @@ class Logger:
     def log_debug(self, message):
         """Log a debug message"""
         self.logger.debug(message)
+
+    def log_detailed_error(self, error, context=""):
+        """
+        Log detailed error information for better debugging.
+
+        Args:
+            error: The exception object
+            context: Context description where the error occurred
+        """
+        import traceback
+        from datetime import datetime
+        from pathlib import Path
+
+        self.logger.error(f"Error in {context}: {str(error)}")
+        self.logger.error(f"Error type: {type(error).__name__}")
+        self.logger.error(f"Traceback: {traceback.format_exc()}")
+
+        # Save error details to separate file for easier access
+        error_path = Path(self.log_dir) / "error_details.log"
+        with open(error_path, "a") as f:
+            f.write(f"\n--- Error at {datetime.now().isoformat()} ---\n")
+            f.write(f"Context: {context}\n")
+            f.write(f"Error: {str(error)}\n")
+            f.write(f"Type: {type(error).__name__}\n")
+            f.write(f"Traceback:\n{traceback.format_exc()}\n")
 
     def log_config(self, config):
         """Log the configuration used for training"""

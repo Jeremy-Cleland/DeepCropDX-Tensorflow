@@ -235,6 +235,37 @@ class Trainer:
 
         return optimizer
 
+    def save_final_model(self, model, model_name, run_dir):
+        """
+        Save the final model in the recommended format.
+
+        Args:
+            model: The trained model to save
+            model_name: Name of the model
+            run_dir: Directory where model should be saved
+
+        Returns:
+            str: Path to the saved model
+        """
+        from pathlib import Path
+
+        # Use .keras extension instead of .h5
+        model_path = Path(run_dir) / f"{model_name}_final.keras"
+
+        # Use the native Keras format
+        try:
+            model.save(str(model_path), save_format="keras")
+            self.logger.info(f"Model saved to {model_path} using native Keras format")
+        except Exception as e:
+            # Fallback to HDF5 format if native format fails
+            self.logger.warning(f"Failed to save in native format: {e}")
+            fallback_path = Path(run_dir) / f"{model_name}_final.h5"
+            model.save(str(fallback_path), save_format="h5")
+            self.logger.info(f"Saved model in HDF5 format: {fallback_path}")
+            model_path = fallback_path
+
+        return str(model_path)
+
     def train(
         self,
         model,
@@ -698,9 +729,8 @@ class Trainer:
                     final_metrics[f"best_{key}_epoch"] = best_epoch
 
         # Save final model
-        model_path = Path(run_dir) / f"{model_name}_final.h5"
-        model.save(str(model_path))
-        final_metrics["model_path"] = str(model_path)
+        model_path = self.save_final_model(model, model_name, run_dir)
+        final_metrics["model_path"] = model_path
 
         # Save history to CSV
         history_df = pd.DataFrame(history.history)

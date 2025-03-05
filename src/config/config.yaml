@@ -1,5 +1,5 @@
 # src/config/config.yaml
-
+# Configuration file for Plant Disease Detection project
 project:
   name: Plant Disease Detection
   description: Deep learning models for detecting diseases in plants
@@ -34,15 +34,20 @@ training:
   # Learning rate scheduler
   lr_schedule:
     enabled: false
-    # Type can be: warmup_cosine, warmup_exponential, warmup_step, one_cycle, reduce_on_plateau
     type: "warmup_cosine"
-    # Number of warmup epochs
     warmup_epochs: 5
-    # Minimum learning rate
     min_lr: 1.0e-6
-    # For reduce_on_plateau (if used)
     factor: 0.5
     patience: 5
+
+  # Learning rate finder configuration
+  lr_finder:
+    enabled: true
+    min_lr: 1e-7
+    max_lr: 1.0
+    num_steps: 100
+    use_found_lr: true
+    plot_results: true
 
 hardware:
   use_metal: true
@@ -70,7 +75,6 @@ data:
   use_saved_splits: true   # Whether to use saved splits when available
   splits_dir: "splits"      # Directory name for storing splits
   cache_parsed_images: false  # Whether to cache parsed images in memory
-
 
 data_augmentation:
   enabled: true
@@ -114,33 +118,21 @@ data_validation:
   max_workers: 16
   max_images_to_check: 10000
 
+# Model quantization settings
+quantization:
+  enabled: false
+  type: "post_training"       # Quantization type: "post_training" or "during_training"
+  format: "int8"               # Quantization format: "int8", "float16", etc.
+  optimize_for_inference: true  # Whether to optimize for inference
+  measure_performance: true     # Whether to measure performance after quantization
 
-  # Model quantization settings
-  quantization:
-    enabled: false
-    # Quantization type: "post_training" or "during_training"
-    type: "post_training"
-    # Quantization format: "int8", "float16", etc.
-    format: "int8"
-    # Whether to optimize for inference
-    optimize_for_inference: true
-    # Whether to measure performance after quantization
-    measure_performance: true
-
-  # Model pruning settings
-  pruning:
-    enabled: false
-    # Pruning type: "magnitude", "structured", etc.
-    type: "magnitude"
-    # Target sparsity (percentage of weights to prune)
-    target_sparsity: 0.5
-    # Whether to perform pruning during training
-    during_training: true
-    # Pruning schedule: "constant" or "polynomial"
-    schedule: "polynomial"
-    # Start step for pruning
-    start_step: 0
-    # End step for pruning
-    end_step: 100
-    # Pruning frequency (every N steps)
-    frequency: 10
+# Model pruning settings
+pruning:
+  enabled: false
+  type: "magnitude"            # Pruning type: "magnitude", "structured", etc.
+  target_sparsity: 0.5         # Target sparsity (percentage of weights to prune)
+  during_training: true        # Whether to perform pruning during training
+  schedule: "polynomial"       # Pruning schedule: "constant" or "polynomial"
+  start_step: 0                # Start step for pruning
+  end_step: 100                # End step for pruning
+  frequency: 10                # Pruning frequency (every N steps)

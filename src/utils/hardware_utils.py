@@ -8,146 +8,74 @@ performance on different hardware platforms (CPU, GPU, Apple Silicon).
 import platform
 import tensorflow as tf
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 
 def configure_hardware(config):
-    """Configure TensorFlow for hardware acceleration
-
-    This function configures TensorFlow based on the available hardware and
-    the provided configuration. It handles CPU threading, GPU memory growth,
-    Apple Silicon Metal support, and mixed precision training.
+    """
+    Configure hardware settings for optimal training performance.
 
     Args:
-        config: Configuration dictionary with hardware settings
+        config: Configuration dictionary
 
     Returns:
-        Dictionary with hardware configuration information
+        dict: Hardware information and configuration
     """
+    import platform
+    import os
+    import tensorflow as tf
+
     hardware_info = {
         "platform": platform.system(),
-        "cpu_type": platform.machine(),
-        "tensorflow_version": tf.__version__,
-        "gpu_available": len(tf.config.list_physical_devices("GPU")) > 0,
-        "devices_used": [],
+        "platform_release": platform.release(),
+        "platform_version": platform.version(),
+        "architecture": platform.machine(),
+        "processor": platform.processor(),
     }
 
-    hardware_config = config.get("hardware", {})
-
-    # Set threading parameters FIRST (before any TF operations)
-    try:
-        tf.config.threading.set_inter_op_parallelism_threads(
-            hardware_config.get("inter_op_parallelism", 0)
-        )
-        tf.config.threading.set_intra_op_parallelism_threads(
-            hardware_config.get("intra_op_parallelism", 0)
-        )
-        print("Threading parameters configured successfully")
-    except RuntimeError as e:
-        print(f"Warning: Could not set threading parameters: {e}")
-
-    # Detect Apple Silicon
+    # Check for Apple Silicon
     is_apple_silicon = platform.system() == "Darwin" and platform.machine() == "arm64"
     hardware_info["is_apple_silicon"] = is_apple_silicon
 
-    # Configure TensorFlow for Metal on Apple Silicon
-    if (
-        hardware_config.get("use_metal", True)
-        and is_apple_silicon
-        and hardware_info["gpu_available"]
-    ):
-        print("Configuring TensorFlow for Metal on Apple Silicon")
-        hardware_info["using_metal"] = True
+    # Configure GPUs
+    gpus = tf.config.list_physical_devices("GPU")
+    hardware_info["num_gpus"] = len(gpus)
+    hardware_info["gpus"] = [gpu.name for gpu in gpus]
 
-        # Enable Metal
+    # Apply Metal-specific optimizations for Apple Silicon
+    if is_apple_silicon:
         try:
-            gpu_devices = tf.config.list_physical_devices("GPU")
-            if gpu_devices:
-                tf.config.experimental.set_visible_devices(gpu_devices[0], "GPU")
-                hardware_info["devices_used"].append("Metal GPU")
+            # Apply Metal optimizations from memory_utils
+            from ..utils.memory_utils import configure_metal_for_stability
 
-                # Enable memory growth to prevent allocating all GPU memory at once
-                if hardware_config.get("memory_growth", True):
-                    for gpu in gpu_devices:
-                        try:
-                            tf.config.experimental.set_memory_growth(gpu, True)
-                            print(f"Enabled memory growth for {gpu}")
-                        except Exception as e:
-                            print(
-                                f"Warning: Could not set memory growth for {gpu}: {e}"
-                            )
+            metal_optimized = configure_metal_for_stability()
+            hardware_info["metal_optimized"] = metal_optimized
 
-                # Use mixed precision if enabled
-                if hardware_config.get("mixed_precision", True):
-                    try:
-                        tf.keras.mixed_precision.set_global_policy("mixed_float16")
-                        print("Mixed precision enabled (float16)")
-                        hardware_info["mixed_precision"] = True
-                    except Exception as e:
-                        print(f"Warning: Could not set mixed precision: {e}")
-                        hardware_info["mixed_precision"] = False
-        except Exception as e:
-            print(f"Warning: Error configuring Metal: {e}")
-            hardware_info["error_configuring_metal"] = str(e)
-            hardware_info["using_metal"] = False
-
-    # For CUDA GPUs
-    elif hardware_info["gpu_available"] and hardware_config.get("use_gpu", True):
-        print("Configuring TensorFlow for CUDA GPU")
-        hardware_info["using_cuda"] = True
-
-        try:
-            # Get GPU details
-            gpu_devices = tf.config.list_physical_devices("GPU")
-            for i, gpu in enumerate(gpu_devices):
-                hardware_info["devices_used"].append(
-                    f"CUDA GPU {i}: {gpu.name if hasattr(gpu, 'name') else 'Unknown'}"
+            # Add fallback for graph optimizer issues
+            if not metal_optimized:
+                os.environ["TF_USE_LEGACY_KERAS"] = (
+                    "1"  # Use legacy Keras implementation
+                )
+                os.environ["TF_METAL_DISABLE_GRAPH_OPTIMIZER"] = (
+                    "1"  # Disable problematic optimizer
                 )
 
-            # Enable memory growth to prevent allocating all GPU memory at once
-            if hardware_config.get("memory_growth", True):
-                for gpu in gpu_devices:
-                    try:
-                        tf.config.experimental.set_memory_growth(gpu, True)
-                        print(f"Enabled memory growth for {gpu}")
-                    except Exception as e:
-                        print(f"Warning: Could not set memory growth for {gpu}: {e}")
-
-            # Use mixed precision if enabled
-            if hardware_config.get("mixed_precision", True):
-                try:
-                    tf.keras.mixed_precision.set_global_policy("mixed_float16")
-                    print("Mixed precision enabled (float16)")
-                    hardware_info["mixed_precision"] = True
-                except Exception as e:
-                    print(f"Warning: Could not set mixed precision: {e}")
-                    hardware_info["mixed_precision"] = False
-        except Exception as e:
-            print(f"Warning: Error configuring GPU: {e}")
-            hardware_info["error_configuring_gpu"] = str(e)
-    else:
-        print("Using CPU for computation")
-        hardware_info["using_cpu"] = True
-        hardware_info["devices_used"].append("CPU")
-
-    # Set memory limit if specified
-    memory_limit_mb = hardware_config.get("memory_limit_mb")
-    if memory_limit_mb:
-        try:
-            for gpu in tf.config.list_physical_devices("GPU"):
-                tf.config.experimental.set_virtual_device_configuration(
-                    gpu,
-                    [
-                        tf.config.experimental.VirtualDeviceConfiguration(
-                            memory_limit=memory_limit_mb
-                        )
-                    ],
+                hardware_info["metal_optimizer_disabled"] = True
+                print(
+                    "Disabled Metal graph optimizer due to known compatibility issues"
                 )
-            print(f"GPU memory limit set to {memory_limit_mb}MB")
-            hardware_info["memory_limit_mb"] = memory_limit_mb
         except Exception as e:
-            print(f"Warning: Could not set memory limit: {e}")
+            print(f"Warning: Error configuring Metal backend: {e}")
+            hardware_info["metal_error"] = str(e)
+
+    # Configure CPU threads
+    num_threads = config.get("hardware", {}).get("num_threads", 0)
+    if num_threads > 0:
+        tf.config.threading.set_inter_op_parallelism_threads(num_threads)
+        tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+        hardware_info["num_threads"] = num_threads
 
     return hardware_info
 

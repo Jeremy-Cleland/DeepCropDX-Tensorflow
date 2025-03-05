@@ -26,20 +26,25 @@ def calculate_metrics(y_true, y_pred, y_pred_prob=None, class_names=None):
     Returns:
         Dictionary with calculated metrics
     """
-    # Convert one-hot encoded labels to class indices if needed
+    # Ensure proper conversion from one-hot vectors
     if y_true.ndim > 1 and y_true.shape[1] > 1:
         y_true_indices = np.argmax(y_true, axis=1)
     else:
         y_true_indices = y_true
 
+    # Same for predictions
     if y_pred.ndim > 1 and y_pred.shape[1] > 1:
         y_pred_indices = np.argmax(y_pred, axis=1)
     else:
         y_pred_indices = y_pred
 
-    # Calculate basic metrics
+    # Calculate accuracy and ensure it's a native Python float
+    accuracy = float(accuracy_score(y_true_indices, y_pred_indices))
+
+    # Explicitly include test_accuracy
     metrics = {
-        "accuracy": accuracy_score(y_true_indices, y_pred_indices),
+        "accuracy": accuracy,
+        "test_accuracy": accuracy,
         "precision_macro": precision_score(
             y_true_indices, y_pred_indices, average="macro", zero_division=0
         ),

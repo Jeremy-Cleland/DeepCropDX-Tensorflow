@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-from tensorflow.keras import backend as K
+import tensorflow.keras.backend as K
 from scipy.signal import savgol_filter
 import time
 import logging
@@ -187,36 +187,30 @@ def find_optimal_learning_rate(
         else:
             smoothed_losses = losses
 
-        # Find the point of steepest descent (minimum gradient)
-        try:
-            # Calculate the gradients of the loss curve
-            gradients = np.gradient(smoothed_losses)
-
-            # Find where the gradient is steepest (most negative)
+        # Fix where optimal learning rate is determined
+        def _get_optimal_lr(lrs, losses):
+            # Find the point with the steepest negative gradient
+            gradients = np.gradient(losses) / np.gradient(np.log10(lrs))
             optimal_idx = np.argmin(gradients)
+            optimal_lr = lrs[optimal_idx]
 
-            # The optimal lr is typically a bit lower than the minimum gradient point
-            optimal_lr = (
-                learning_rates[optimal_idx] / 10.0
-            )  # Division by 10 is a rule of thumb
-        except Exception as e:
-            logger.warning(
-                f"Error finding optimal learning rate: {e}. Using fallback method."
-            )
-            # Fallback: Find point with fastest loss decrease
-            loss_ratios = losses[1:] / losses[:-1]
-            fastest_decrease_idx = np.argmin(loss_ratios)
-            if fastest_decrease_idx < len(learning_rates) - 1:
-                optimal_lr = learning_rates[fastest_decrease_idx]
-            else:
-                optimal_lr = learning_rates[len(learning_rates) // 2] / 10.0
+            # Ensure optimal_lr is a float, not a string or other type
+            if not isinstance(optimal_lr, (int, float)):
+                try:
+                    optimal_lr = float(optimal_lr)
+                except (ValueError, TypeError):
+                    print(
+                        f"Warning: Could not convert optimal learning rate to float, using default"
+                    )
+                    optimal_lr = 1e-3  # Default to reasonable value
 
-        # Ensure we found a reasonable learning rate
-        if optimal_lr <= min_lr or optimal_lr >= max_lr:
-            logger.warning(
-                f"Optimal learning rate ({optimal_lr:.2e}) is at or outside the bounds "
-                f"of the tested range ({min_lr:.2e} - {max_lr:.2e}). Consider adjusting the range."
-            )
+            return optimal_lr
+
+        # When returning the optimal learning rate
+        optimal_lr = _get_optimal_lr(learning_rates, smoothed_losses)
+
+        # Format as float for printing
+        print(f"Optimal learning rate: {float(optimal_lr):.2e}")
 
         # Plot the results if requested
         if plot_results:
@@ -226,7 +220,7 @@ def find_optimal_learning_rate(
             f"Learning rate finder complete. Optimal learning rate: {optimal_lr:.2e}"
         )
 
-        return learning_rates, losses, optimal_lr
+        return learning_rates, losses, float(optimal_lr)
 
     except Exception as e:
         # Restore original weights and learning rate in case of error
@@ -757,6 +751,14 @@ class AdaptiveLearningRateCallback(tf.keras.callbacks.Callback):
 
         # Get current learning rate
         lr = K.get_value(self.model.optimizer.lr)
+
+        # Ensure lr is a numeric value, not a string
+        if isinstance(lr, str):
+            try:
+                lr = float(lr)
+            except ValueError:
+                print(f"Warning: Could not convert learning rate '{lr}' to float")
+                return
 
         # Check if we're better than the previous best
         if self.monitor_op(current - self.min_delta, self.best):

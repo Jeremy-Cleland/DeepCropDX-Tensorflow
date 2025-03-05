@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# src/scripts/train.py
 """
 Train a model on a dataset with enhanced features
 """
@@ -13,12 +13,13 @@ import time
 from src.config.config import get_paths
 from src.config.config_loader import ConfigLoader
 from src.preprocessing.data_loader import DataLoader
-from src.models.enhanced_model_factory import EnhancedModelFactory
+from src.models.model_factory import ModelFactory
 from src.training.trainer import Trainer
 from src.training.lr_finder import (
     find_optimal_learning_rate,
     LearningRateFinderCallback,
 )
+
 from src.utils.seed_utils import set_global_seeds
 from src.utils.hardware_utils import configure_hardware, print_hardware_summary
 from src.model_registry.registry_manager import ModelRegistryManager
@@ -112,7 +113,7 @@ def main():
     print(f"Loaded dataset with {len(class_names)} classes")
 
     # Create enhanced model factory
-    model_factory = EnhancedModelFactory()
+    model_factory = ModelFactory()
 
     # Get model architecture
     model_name = args.model
