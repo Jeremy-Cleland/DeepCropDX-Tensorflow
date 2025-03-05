@@ -93,7 +93,7 @@ class Trainer:
 
     def _apply_gradient_clipping(self, optimizer, clip_norm=None, clip_value=None):
         """
-        Apply gradient clipping to an optimizer in a version-compatible way
+        Apply gradient clipping to an optimizer for TensorFlow 2.16.2
 
         Args:
             optimizer: The optimizer to apply clipping to
@@ -106,45 +106,76 @@ class Trainer:
         if clip_norm is None and clip_value is None:
             return optimizer
 
-        # Check TensorFlow version to determine the appropriate API
-        tf_version = tuple(map(int, tf.__version__.split(".")[:2]))
+        self.train_logger.log_info(f"TensorFlow version: {tf.__version__}")
+        self.train_logger.log_info(f"Optimizer type: {type(optimizer).__name__}")
+
+        # Check if we have a LossScaleOptimizer wrapper (for mixed precision)
+        if hasattr(optimizer, "inner_optimizer"):
+            inner_optimizer = optimizer.inner_optimizer
+            self.train_logger.log_info(
+                f"Inner optimizer type: {type(inner_optimizer).__name__}"
+            )
+        else:
+            inner_optimizer = optimizer
 
         if clip_norm is not None:
             self.train_logger.log_info(
                 f"Using gradient norm clipping with value {clip_norm}"
             )
 
-            # For TensorFlow 2.11+ (new API)
-            if tf_version >= (2, 11):
-                try:
-                    # First try the newer location
-                    return optimizer.extend(
-                        tf.keras.optimizers.experimental.ClipByGlobalNorm(clip_norm)
-                    )
-                except (AttributeError, ImportError):
-                    # Fallback for different API structures
-                    try:
-                        # Try another potential location in newer TF versions
-                        return tf.keras.optimizers.extend.ClipByGlobalNorm(clip_norm)(
-                            optimizer
+            try:
+                # For TF 2.16.2, use the appropriate method based on optimizer type
+                if hasattr(inner_optimizer, "clipnorm"):
+                    # Direct attribute setting works for many optimizers
+                    inner_optimizer.clipnorm = clip_norm
+                    self.train_logger.log_info("Applied clipnorm directly to optimizer")
+                    return optimizer
+                elif hasattr(inner_optimizer, "with_clipnorm"):
+                    # Use with_clipnorm method if available
+                    if hasattr(optimizer, "inner_optimizer"):
+                        # For LossScaleOptimizer, need to set inner_optimizer and recreate
+                        new_inner = inner_optimizer.with_clipnorm(clip_norm)
+                        # Recreate the LossScaleOptimizer with the new inner optimizer
+                        from tensorflow.keras import mixed_precision
+
+                        new_optimizer = mixed_precision.LossScaleOptimizer(new_inner)
+                        self.train_logger.log_info(
+                            "Applied clipnorm to inner optimizer with with_clipnorm()"
                         )
-                    except (AttributeError, ImportError):
+                        return new_optimizer
+                    else:
+                        # For regular optimizers
+                        new_optimizer = inner_optimizer.with_clipnorm(clip_norm)
+                        self.train_logger.log_info(
+                            "Applied clipnorm with with_clipnorm()"
+                        )
+                        return new_optimizer
+                else:
+                    # Use global norm clipping as a last resort
+                    try:
+
+                        orig_apply_gradients = inner_optimizer.apply_gradients
+
+                        def apply_gradients_with_clip(grads_and_vars, **kwargs):
+                            grads, vars = zip(*grads_and_vars)
+                            grads, _ = tf.clip_by_global_norm(grads, clip_norm)
+                            return orig_apply_gradients(zip(grads, vars), **kwargs)
+
+                        inner_optimizer.apply_gradients = apply_gradients_with_clip
+                        self.train_logger.log_info(
+                            "Applied clipnorm by modifying apply_gradients method"
+                        )
+                        return optimizer
+                    except Exception as e:
                         self.train_logger.log_warning(
-                            f"Could not apply gradient norm clipping using newer API. "
-                            f"Using older method."
+                            f"Failed to apply custom gradient clipping: {e}"
                         )
 
-            # Fallback for older TensorFlow versions or if newer methods fail
-            try:
-                # For older TensorFlow versions that use optimizer.clipnorm
-                optimizer.clipnorm = clip_norm
-                self.train_logger.log_info(
-                    "Applied clipnorm to optimizer (legacy method)"
-                )
-                return optimizer
             except Exception as e:
                 self.train_logger.log_warning(
-                    f"Failed to apply gradient norm clipping: {e}. "
+                    f"Failed to apply gradient norm clipping: {e}"
+                )
+                self.train_logger.log_warning(
                     "Training will proceed without gradient clipping."
                 )
 
@@ -154,13 +185,52 @@ class Trainer:
             )
 
             try:
-                # This works on most TensorFlow versions
-                optimizer.clipvalue = clip_value
-                self.train_logger.log_info("Applied clipvalue to optimizer")
+                # For TF 2.16.2 optimizers
+                if hasattr(inner_optimizer, "clipvalue"):
+                    inner_optimizer.clipvalue = clip_value
+                    self.train_logger.log_info(
+                        "Applied clipvalue directly to optimizer"
+                    )
+                    return optimizer
+                elif hasattr(optimizer, "with_clipvalue"):
+                    optimizer = optimizer.with_clipvalue(clip_value)
+                    self.train_logger.log_info(
+                        "Applied clipvalue using with_clipvalue() method"
+                    )
+                else:
+                    # Use custom clipping as a last resort
+                    try:
+
+                        orig_apply_gradients = inner_optimizer.apply_gradients
+
+                        def apply_gradients_with_clip(grads_and_vars, **kwargs):
+                            clipped_grads_and_vars = [
+                                (
+                                    (tf.clip_by_value(g, -clip_value, clip_value), v)
+                                    if g is not None
+                                    else (None, v)
+                                )
+                                for g, v in grads_and_vars
+                            ]
+                            return orig_apply_gradients(
+                                clipped_grads_and_vars, **kwargs
+                            )
+
+                        inner_optimizer.apply_gradients = apply_gradients_with_clip
+                        self.train_logger.log_info(
+                            "Applied clipvalue by modifying apply_gradients method"
+                        )
+                        return optimizer
+                    except Exception as e:
+                        self.train_logger.log_warning(
+                            f"Failed to apply custom gradient value clipping: {e}"
+                        )
             except Exception as e:
                 self.train_logger.log_warning(
-                    f"Failed to apply gradient value clipping: {e}. "
-                    "Training will proceed without gradient clipping."
+                    f"Failed to apply gradient value clipping: {e}"
+                )
+                self.train_logger.log_warning(
+                    "Training will proceed without value clipping."
                 )
 
         return optimizer
@@ -384,7 +454,7 @@ class Trainer:
         # Learning rate scheduler if enabled (including new warmup schedulers)
         lr_scheduler_config = training_config.get("lr_scheduler", {})
         lr_schedule_config = training_config.get("lr_schedule", {})
-        
+
         # Check for the new warmup scheduler
         if lr_schedule_config.get("enabled", False):
             # Create a warmup scheduler using the new implementation
@@ -392,8 +462,10 @@ class Trainer:
             if warmup_scheduler:
                 callbacks.append(warmup_scheduler)
                 scheduler_type = lr_schedule_config.get("type", "warmup_cosine")
-                self.train_logger.log_info(f"Using advanced scheduler: {scheduler_type}")
-        
+                self.train_logger.log_info(
+                    f"Using advanced scheduler: {scheduler_type}"
+                )
+
         # Legacy scheduler support
         elif lr_scheduler_config.get("enabled", False):
             lr_scheduler_type = lr_scheduler_config.get("type", "reduce_on_plateau")
@@ -441,36 +513,84 @@ class Trainer:
             class_info = getattr(train_data, "class_indices", None)
             if class_info:
                 class_names = {v: k for k, v in class_info.items()}
+                n_classes = len(class_names)
 
-                # Calculate class weights inversely proportional to frequency
                 try:
                     if hasattr(train_data, "get_files_by_class"):
+                        # Direct file counting if available
                         class_counts = [
                             len(list(train_data.get_files_by_class(c)))
                             for c in class_names.values()
                         ]
-                    else:
-                        # Alternative method if get_files_by_class doesn't exist
-                        self.train_logger.log_warning(
-                            "Dataset doesn't support get_files_by_class, estimating class distribution"
+                        self.train_logger.log_info(
+                            f"Class counts from files: {class_counts}"
                         )
-                        # Sample some batches to estimate class distribution
-                        samples = []
-                        for i, (_, y) in enumerate(train_data):
-                            samples.append(y)
-                            if i >= 10:  # Sample up to 10 batches
-                                break
-                        if samples:
-                            y_samples = np.concatenate(samples, axis=0)
-                            class_counts = np.sum(y_samples, axis=0)
-                        else:
-                            raise ValueError("Could not estimate class distribution")
+                    else:
+                        # For tf.data.Dataset and other iterators
+                        self.train_logger.log_info(
+                            "Dataset doesn't support get_files_by_class, estimating class distribution by sampling"
+                        )
 
-                    # Calculate weights
+                        # Sample more batches for better estimates
+                        samples = []
+                        max_samples = min(
+                            50, len(train_data)
+                        )  # Sample more, but not too many
+
+                        # Log the dataset type for debugging
+                        self.train_logger.log_info(
+                            f"Dataset type: {type(train_data).__name__}"
+                        )
+
+                        # Create a temporary copy to avoid consuming the dataset
+                        temp_data = train_data
+                        if hasattr(train_data, "unbatch"):
+                            # If it's a batched dataset, get a sample
+                            sample_size = 1000  # Adjust based on your dataset size
+                            temp_data = train_data.unbatch().take(sample_size)
+
+                        # Collect samples
+                        for i, batch in enumerate(temp_data):
+                            if isinstance(batch, tuple):
+                                _, y = batch
+                            else:
+                                y = batch[1]  # Assume second element is labels
+                            samples.append(y)
+                            if i >= max_samples:
+                                break
+
+                        if samples:
+                            # Concatenate and calculate class distribution
+                            y_samples = np.concatenate(samples, axis=0)
+                            if len(y_samples.shape) > 1 and y_samples.shape[1] > 1:
+                                # One-hot encoded
+                                class_counts = np.sum(y_samples, axis=0).tolist()
+                            else:
+                                # Integer labels
+                                unique, counts = np.unique(
+                                    y_samples, return_counts=True
+                                )
+                                class_counts = [0] * n_classes
+                                for cls, count in zip(unique, counts):
+                                    class_counts[int(cls)] = count
+
+                            self.train_logger.log_info(
+                                f"Estimated class counts: {class_counts}"
+                            )
+                        else:
+                            raise ValueError(
+                                "Could not collect samples for class distribution"
+                            )
+
+                    # Calculate weights with smoothing to avoid extreme values
                     total = sum(class_counts)
-                    n_classes = len(class_names)
+                    smoothing_factor = 0.1
                     class_weights = {
-                        i: total / (n_classes * count) if count > 0 else 1.0
+                        i: total
+                        / (
+                            (n_classes * max(count, 1)) * (1 - smoothing_factor)
+                            + (total / n_classes) * smoothing_factor
+                        )
                         for i, count in enumerate(class_counts)
                     }
 
@@ -481,6 +601,10 @@ class Trainer:
                     self.train_logger.log_warning(
                         f"Failed to compute class weights: {e}. Using uniform weights."
                     )
+                    # Log the full exception for debugging
+                    import traceback
+
+                    self.train_logger.log_debug(traceback.format_exc())
                     class_weights = None
 
         # Custom callback to log hardware metrics

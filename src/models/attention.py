@@ -232,7 +232,14 @@ def squeeze_and_excitation_block(input_tensor, ratio=16):
     channels = K.int_shape(input_tensor)[-1]
 
     # Squeeze operation (global average pooling)
-    x = GlobalAveragePooling2D()(input_tensor)
+    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
+    input_shape = K.int_shape(input_tensor)
+    if len(input_shape) == 2:
+        # Already pooled, use as is
+        x = input_tensor
+    else:
+        # Still has spatial dimensions, apply pooling
+        x = GlobalAveragePooling2D()(input_tensor)
 
     # Excitation operation (two FC layers with bottleneck)
     x = Dense(channels // ratio, activation="relu")(x)
@@ -240,7 +247,18 @@ def squeeze_and_excitation_block(input_tensor, ratio=16):
 
     # Scale the input tensor
     x = Reshape((1, 1, channels))(x)
-    x = multiply([input_tensor, x])
+    
+    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
+    input_shape = K.int_shape(input_tensor)
+    if len(input_shape) == 2:
+        # For already pooled input, we need to reshape both tensors to be compatible
+        input_reshaped = Reshape((1, 1, channels))(input_tensor)
+        x = multiply([input_reshaped, x])
+        # Flatten back to match original shape
+        x = Flatten()(x)
+    else:
+        # For spatial inputs, apply scaling as usual
+        x = multiply([input_tensor, x])
 
     return x
 
@@ -327,8 +345,15 @@ class ECABlock(tf.keras.layers.Layer):
         Returns:
             Output tensor with ECA applied
         """
-        # Global average pooling
-        y = self.avg_pool(inputs)
+        # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
+        input_shape = tf.keras.backend.int_shape(inputs)
+        
+        if len(input_shape) == 2:
+            # Already pooled, use as is
+            y = inputs
+        else:
+            # Global average pooling
+            y = self.avg_pool(inputs)
 
         # Reshape to [batch, channels, 1]
         y = tf.reshape(y, [-1, 1, self.channels])
@@ -340,11 +365,14 @@ class ECABlock(tf.keras.layers.Layer):
         y = tf.reshape(y, [-1, self.channels])
         y = tf.nn.sigmoid(y)
 
-        # Reshape to [batch, 1, 1, channels] for broadcasting
-        y = tf.reshape(y, [-1, 1, 1, self.channels])
-
-        # Scale the input tensor
-        return inputs * y
+        if len(input_shape) == 2:
+            # For already pooled input, multiply directly
+            return inputs * y
+        else:
+            # Reshape to [batch, 1, 1, channels] for broadcasting
+            y = tf.reshape(y, [-1, 1, 1, self.channels])
+            # Scale the input tensor
+            return inputs * y
 
 
 def spatial_attention_block(input_tensor):
@@ -357,6 +385,13 @@ def spatial_attention_block(input_tensor):
     Returns:
         Output tensor with spatial attention applied
     """
+    # Check if input has spatial dimensions
+    input_shape = tf.keras.backend.int_shape(input_tensor)
+    
+    # If input is already flattened (no spatial dimensions), return as is
+    if len(input_shape) == 2:
+        return input_tensor
+        
     # Compute channel-wise average and max pooling
     avg_pool = tf.reduce_mean(input_tensor, axis=-1, keepdims=True)
     max_pool = tf.reduce_max(input_tensor, axis=-1, keepdims=True)
@@ -390,8 +425,16 @@ def cbam_block(input_tensor, ratio=16):
     channels = K.int_shape(input_tensor)[-1]
 
     # Channel attention
-    avg_pool = GlobalAveragePooling2D()(input_tensor)
-    max_pool = tf.reduce_max(input_tensor, axis=[1, 2])
+    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
+    input_shape = K.int_shape(input_tensor)
+    if len(input_shape) == 2:
+        # Already pooled, use as is
+        avg_pool = input_tensor
+        max_pool = input_tensor  # For already pooled data, we use the same values
+    else:
+        # Still has spatial dimensions, apply pooling
+        avg_pool = GlobalAveragePooling2D()(input_tensor)
+        max_pool = tf.reduce_max(input_tensor, axis=[1, 2])
 
     avg_pool = Dense(channels // ratio, activation="relu")(avg_pool)
     avg_pool = Dense(channels, activation="linear")(avg_pool)
@@ -401,8 +444,18 @@ def cbam_block(input_tensor, ratio=16):
 
     channel_attention = tf.nn.sigmoid(avg_pool + max_pool)
     channel_attention = Reshape((1, 1, channels))(channel_attention)
-
-    channel_refined = multiply([input_tensor, channel_attention])
+    
+    # Check if the input is already pooled (2D) or still has spatial dimensions (4D)
+    input_shape = K.int_shape(input_tensor)
+    if len(input_shape) == 2:
+        # For already pooled input, we need to reshape both tensors to be compatible
+        input_reshaped = Reshape((1, 1, channels))(input_tensor)
+        channel_refined = multiply([input_reshaped, channel_attention])
+        # Flatten back to match original shape
+        channel_refined = Flatten()(channel_refined)
+    else:
+        # For spatial inputs, apply scaling as usual
+        channel_refined = multiply([input_tensor, channel_attention])
 
     # Spatial attention
     spatial_attention = spatial_attention_block(channel_refined)

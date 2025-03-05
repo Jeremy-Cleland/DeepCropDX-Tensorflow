@@ -1,378 +1,472 @@
+# DeepCropDX: Advanced Plant Disease Detection System
 
-![Crop Disease Detection Banner](.github/assets/crop_disease_detection_01.jpg)
-
-# **DeepCropDX | Advanced Plant Disease Detection System**
-
+![Plant Disease Detection](https://img.shields.io/badge/DeepCropDX-Plant%20Disease%20Detection-brightgreen)
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16+-orange.svg)](https://www.tensorflow.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-DeepCropDX is a comprehensive deep learning pipeline for accurately diagnosing plant diseases from images. The system combines state-of-the-art neural network architectures (DenseNet, EfficientNet, MobileNet, ResNet, and Xception) with transfer learning to deliver highly accurate disease detection for agricultural applications.
+DeepCropDX is a state-of-the-art deep learning system for accurate detection and classification of plant diseases from images. Leveraging cutting-edge computer vision techniques and neural network architectures, this platform provides agricultural researchers, farmers, and technologists with a powerful tool to identify plant diseases early and accurately, potentially saving crops and increasing yields.
 
-## Directory Structure
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [System Architecture](#system-architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Advanced Features](#advanced-features)
+- [Project Structure](#project-structure)
+- [Model Architectures](#model-architectures)
+- [Data Processing](#data-processing)
+- [Training Pipeline](#training-pipeline)
+- [Evaluation & Metrics](#evaluation--metrics)
+- [Experiment Tracking](#experiment-tracking)
+- [Optimization Techniques](#optimization-techniques)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Overview
+
+DeepCropDX combines multiple state-of-the-art neural network architectures with advanced data augmentation techniques to create a comprehensive plant disease detection system. The platform supports various model architectures (ResNet, DenseNet, EfficientNet, MobileNet, Vision Transformers, etc.) and provides extensive tools for training, evaluation, and deployment.
+
+### Key Benefits
+
+- **High Accuracy**: Achieves state-of-the-art performance across multiple plant disease datasets
+- **Flexibility**: Supports numerous model architectures and customization options
+- **Efficiency**: Optimized data pipeline and training process
+- **Reproducibility**: Comprehensive experiment tracking and model registry
+- **Scalability**: Designed to handle large datasets and complex models
+
+## Features
+
+### Core Features
+
+- **Comprehensive Model Support**: Wide range of neural network architectures
+- **Advanced Data Augmentation**: State-of-the-art techniques for improved generalization
+- **Flexible Configuration System**: YAML-based configuration with command-line overrides
+- **Robust Evaluation Metrics**: Detailed performance analysis and visualization
+- **Model Registry**: Systematic tracking of all training runs and model performance
+- **Hardware Optimization**: Efficient use of GPU/CPU resources with mixed precision training
+
+### Advanced Capabilities
+
+- **Attention Mechanisms**: Squeeze-and-Excitation (SE), CBAM, and Spatial Attention
+- **Advanced Learning Rate Scheduling**: Warmup, cosine decay, one-cycle policy
+- **Model Optimization**: Quantization and pruning for efficient deployment
+- **Batch-level Augmentations**: MixUp and CutMix for enhanced training
+- **Memory Management**: Prevents memory leaks during extended training sessions
+- **Detailed Reporting**: Generates comprehensive HTML reports with visualizations
+
+## System Architecture
+
+DeepCropDX is built with a modular architecture that separates concerns and promotes maintainability:
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
+│ Configuration   │────▶│ Data Pipeline    │────▶│ Model Factory  │
+│ Management      │     │                  │     │                │
+└─────────────────┘     └──────────────────┘     └────────────────┘
+                                                         │
+┌─────────────────┐     ┌──────────────────┐            ▼
+│ Model Registry  │◀────│ Training         │◀───────────┘
+│ & Reporting     │     │ Pipeline         │
+└─────────────────┘     └──────────────────┘
+        ▲                        │
+        │                        ▼
+        │               ┌──────────────────┐
+        └───────────────│ Evaluation       │
+                        │ System           │
+                        └──────────────────┘
+```
+
+Each component is designed to be independently testable, maintainable, and extensible.
+
+## Installation
+
+### Prerequisites
+
+- Python 3.10+
+- TensorFlow 2.16+
+- CUDA-compatible GPU (recommended)
+
+### Setup
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/yourusername/deepcropdx.git
+   cd deepcropdx
+   ```
+
+2. Create a virtual environment:
+
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. (Optional) Configure GPU settings in `src/config/config.yaml`
+
+## Usage
+
+### Basic Training
+
+```bash
+# Train a single model
+python -m src.main --model ResNet50 --data_dir data/processed
+
+# Train multiple specific models
+python -m src.main --models EfficientNetB0 MobileNetV2 --data_dir data/processed
+
+# Train all models defined in the configuration
+python -m src.main --all_models --data_dir data/processed
+```
+
+### Advanced Training Options
+
+```bash
+# Use a custom configuration file
+python -m src.main --model ResNet50 --config custom_config.yaml
+
+# Enable learning rate warmup
+python -m src.main --model ResNet50 --warmup_epochs 5
+
+# Resume training from checkpoints
+python -m src.main --model ResNet50 --resume
+
+# Find optimal learning rate before training
+python -m src.main --model ResNet50 --find_lr
+```
+
+### Evaluation
+
+```bash
+# Evaluate a trained model
+python -m src.scripts.evaluate --model ResNet50 --run_id latest
+
+# Compare multiple models
+python -m src.scripts.compare_models --models ResNet50 EfficientNetB0 MobileNetV2
+```
+
+### Model Registry Interface
+
+```bash
+# List all trained models
+python -m src.scripts.registry_cli list
+
+# View details for a specific model
+python -m src.scripts.registry_cli details --model ResNet50
+
+# Generate HTML report of all models
+python -m src.scripts.registry_cli report
+```
+
+## Advanced Features
+
+### Learning Rate Scheduling
+
+DeepCropDX implements sophisticated learning rate scheduling techniques:
+
+```yaml
+# Example learning rate schedule configuration
+training:
+  lr_schedule:
+    enabled: true
+    type: "warmup_cosine"
+    warmup_epochs: 5
+    min_lr: 1.0e-6
+```
+
+Available scheduling types:
+
+- `warmup_cosine`: Linear warmup followed by cosine decay
+- `warmup_exponential`: Linear warmup followed by exponential decay
+- `warmup_step`: Linear warmup followed by step decay
+- `one_cycle`: One-cycle learning rate policy (fast increase, then decrease)
+
+### Model Optimization
+
+#### Quantization
+
+```bash
+# Enable post-training quantization
+python -m src.main --model MobileNetV2 --quantize
+```
+
+Quantization reduces model size and improves inference speed by representing weights with lower precision.
+
+#### Pruning
+
+```bash
+# Enable model pruning
+python -m src.main --model ResNet50 --pruning
+```
+
+Pruning removes redundant connections in the network, creating sparse models that are smaller and potentially faster.
+
+### Attention Mechanisms
+
+```bash
+# Add Squeeze-and-Excitation attention to a model
+python -m src.main --model ResNet50 --attention se
+
+# Add CBAM attention to a model
+python -m src.main --model ResNet50 --attention cbam
+
+# Add Spatial attention to a model
+python -m src.main --model ResNet50 --attention spatial
+```
+
+Attention mechanisms help models focus on the most relevant parts of the image, improving accuracy for complex patterns.
+
+## Project Structure
 
 ```
 root/
-├── src/                        # All source code
-│   ├── config/                 # Configuration management
-│   │   ├── config.py           # Path management system
-│   │   ├── config_loader.py    # Load YAML configs
-│   │   ├── config_manager.py   # Manage config and CLI args
-│   │   ├── model_configs/      # Model-specific configurations
-│   │   │   └── models.yaml     # Centralized model configs
-│   ├── evaluation/             # Evaluation utilities
-│   │   ├── metrics.py          # Metrics calculation
-│   │   └── visualization.py    # Visualization utilities
-│   ├── models/                 # Model definitions
-│   │   ├── model_factory.py    # Basic model creation factory
-│   │   ├── model_factory_new.py # Enhanced model factory
-│   │   ├── model_optimizer.py  # Model quantization and pruning
-│   │   └── advanced_architectures.py # Modern model architectures
-│   ├── preprocessing/          # Data preprocessing
-│   │   ├── data_loader.py      # Basic data loading
-│   │   ├── data_loader_new.py  # Enhanced data loading
-│   │   ├── data_transformations.py # Advanced data augmentations
-│   │   └── dataset_pipeline.py # Optimized data pipeline
-│   ├── scripts/                # Executable scripts
-│   │   ├── train.py            # Training script
-│   │   ├── evaluate.py         # Evaluation script
-│   │   └── compare_models.py   # Model comparison script
-│   ├── training/               # Training utilities
-│   │   ├── trainer.py          # Model trainer
-│   │   ├── batch_trainer.py    # Batch training capabilities
-│   │   ├── training_pipeline.py # Training orchestration
-│   │   └── learning_rate_scheduler.py # Advanced LR scheduling
-│   ├── utils/                  # Utility functions
-│   │   ├── logger.py           # Logging utilities
-│   │   ├── report_generator.py # Report generation
-│   │   ├── cli_utils.py        # CLI argument handling
-│   │   ├── error_handling.py   # Error handling utilities
-│   │   └── memory_utils.py     # Memory management utilities
-│   └── main.py                 # Main entry point (simplified)
-├── data/                       # Data storage
-│   ├── raw/                    # Raw data
-│   ├── processed/              # Processed data
-│   └── test/                   # Test data (optional)
-├── trials/                     # Model training results
-│   ├── ModelName1/             # Results for a specific model
-│   │   └── run_YYYYMMDD_HHMMSS_001/  # Specific training run
-│   │       ├── config.json     # Configuration used
-│   │       ├── final_metrics.json  # Final performance metrics
-│   │       ├── model_summary.txt  # Model architecture summary
-│   │       ├── report.html     # HTML report
-│   │       ├── ModelName_final.h5  # Saved model
-│   │       ├── training/       # Training artifacts
-│   │       │   ├── checkpoints/  # Model checkpoints
-│   │       │   ├── plots/      # Training plots
-│   │       │   └── tensorboard/  # TensorBoard logs
-│   │       └── evaluation/     # Evaluation artifacts
-│   │           ├── metrics.json  # Evaluation metrics
-│   │           └── plots/      # Evaluation plots
-│   └── ModelName2/             # Another model's results
-├── docs/                       # Documentation
-│   └── optimization.md         # Documentation for optimization features
-├── config/                     # Configuration examples
-│   └── examples/               
-│       └── lr_schedule_config.yaml # Example LR schedule config
-├── logs/                       # General logs
-└── restructure_project.py      # Script to restructure the project
+├── src/                      # Source code
+│   ├── config/               # Configuration management
+│   ├── evaluation/           # Evaluation utilities
+│   ├── models/               # Model definitions
+│   ├── preprocessing/        # Data preprocessing
+│   ├── scripts/              # Executable scripts
+│   ├── training/             # Training utilities
+│   ├── utils/                # Utility functions
+│   └── main.py               # Main entry point
+├── data/                     # Data storage
+│   ├── raw/                  # Raw data
+│   └── processed/            # Processed data
+├── trials/                   # Model training results
+│   ├── registry.json         # Model registry database
+│   └── [ModelName]/          # Results for specific models
+├── docs/                     # Documentation
+└── config/                   # Configuration examples
+    └── examples/
 ```
 
-## Key Improvements
+## Model Architectures
 
-1. **Modular Architecture**:
-   - Simplified main.py by separating it into focused modules
-   - Clear separation of concerns between CLI, training, and reporting
-   - Improved maintainability and testability
+DeepCropDX supports a wide range of model architectures:
 
-2. **Enhanced Error Handling**:
-   - Comprehensive error handling throughout the codebase
-   - Custom exception types for specific error scenarios
-   - Error recovery with retry capabilities
-   - Detailed error reporting and logging
+### Standard CNN Architectures
 
-3. **Memory Management**:
-   - Advanced memory cleanup between model training runs
-   - Memory usage monitoring and reporting
-   - GPU memory optimization for efficient batch training
-   - Prevention of memory leaks during long training sessions
+- ResNet family (50, 101, 152, v2 variants)
+- DenseNet family (121, 169, 201)
+- MobileNet family (v1, v2, v3)
+- EfficientNet family (B0-B7)
+- Xception
+- InceptionV3/InceptionResNetV2
 
-4. **Advanced Model Features**:
-   - Support for model quantization (post-training and during-training)
-   - Model pruning capabilities for smaller deployments
-   - Learning rate warmup scheduling for better convergence
-   - Support for newer model architectures (EfficientNetV2, ConvNeXt, ViT)
+### Advanced Architectures
 
-5. **Optimized Data Pipeline**:
-   - Refactored data loading to separate concerns
-   - Enhanced performance with prefetching and parallel processing
-   - Extensive data augmentation options
-   - Improved memory efficiency during data processing
+- EfficientNetV2 family
+- ConvNeXt (tiny, small, base, large)
+- Vision Transformers (ViT)
 
-6. **Comprehensive Documentation**:
-   - Enhanced type hints and detailed docstrings
-   - Documentation for optimization techniques
-   - Example configuration files
-   - Improved code organization
+### Custom Attention Mechanisms
 
-## Using the New Structure
+- SE (Squeeze and Excitation)
+- CBAM (Convolutional Block Attention Module)
+- Spatial Attention
 
-1. **Running the main script**:
+Models can be customized with different input sizes, dropout rates, regularization parameters, and pre-trained weights.
 
-   ```bash
-   # Train a single model
-   python -m src.main --model ResNet50 --data_dir data/processed
+## Data Processing
 
-   # Train multiple specific models
-   python -m src.main --models EfficientNetB0 EfficientNetB1 MobileNetV2 --data_dir data/processed
+### Data Loading
 
-   # Train all models defined in the configuration
-   python -m src.main --all_models --data_dir data/processed
-   
-   # Use advanced learning rate scheduling
-   python -m src.main --model ResNet50 --config config/examples/lr_schedule_config.yaml
-   
-   # Print hardware information and exit
-   python -m src.main --hardware_info
-   ```
-
-2. **Using optimization features**:
-
-   ```bash
-   # Enable model quantization
-   python -m src.main --model MobileNetV2 --config config/examples/quantization_config.yaml
-
-   # Enable model pruning
-   python -m src.main --model ResNet50 --config config/examples/pruning_config.yaml
-   
-   # Combined optimizations
-   python -m src.main --model EfficientNetB0 --config config/examples/optimized_training.yaml
-   ```
-
-3. **Advanced data pipeline usage**:
-
-   ```bash
-   # Use enhanced data loading with memory optimization
-   python -m src.main --model ResNet50 --use_new_data_loader --data_dir data/processed
-   
-   # Enable advanced data augmentations
-   python -m src.main --model MobileNetV2 --advanced_augmentations --data_dir data/processed
-   ```
-
-4. **Memory management options**:
-
-   ```bash
-   # Enable explicit GPU memory management
-   python -m src.main --model ResNet50 --manage_gpu_memory
-   
-   # Monitor memory usage during training
-   python -m src.main --model ResNet50 --monitor_memory
-   ```
-
-## Next Steps
-
-1. Update any imports in the files to reference the new structure
-2. Add the `src` directory to your Python path or install as a package
-3. Run a test training to ensure everything works correctly
-4. Consider creating a requirements.txt or updating your environment.yml file
-
-# New Optimization Features
-
-## Overview
-
-The project now includes several advanced optimization features to improve model performance, reduce memory usage, and enhance training efficiency.
-
-## Model Quantization
-
-Model quantization reduces model size and improves inference speed by representing weights with lower precision.
+The system supports various dataset formats and automatically handles splitting into training, validation, and test sets:
 
 ```python
-from src.models.model_optimizer import ModelOptimizer
+# Using the data loader
+from src.preprocessing.data_loader import DataLoader
 
-# Create optimizer
-optimizer = ModelOptimizer(config)
-
-# Apply post-training quantization
-quantized_model = optimizer.apply_quantization(
-    model, 
-    representative_dataset=representative_dataset,
-    method="post_training",
-    quantization_bits=8
-)
-```
-
-## Model Pruning
-
-Pruning removes redundant weights to create sparse models that are smaller and potentially faster.
-
-```python
-from src.models.model_optimizer import ModelOptimizer
-
-# Create optimizer
-optimizer = ModelOptimizer(config)
-
-# Apply pruning during training
-pruning_params = optimizer.setup_pruning(
-    model,
-    target_sparsity=0.5,
-    pruning_schedule="polynomial"
+loader = DataLoader(
+    data_dir="path/to/dataset",
+    validation_split=0.2,
+    test_split=0.1,
+    seed=42
 )
 
-# Get pruning callbacks for training
-pruning_callbacks = optimizer.get_pruning_callbacks()
+train_data, val_data, test_data = loader.load_dataset()
 ```
 
-## Learning Rate Scheduling
+### Data Augmentation Pipeline
 
-Advanced learning rate scheduling for improved training stability and convergence.
+DeepCropDX implements a sophisticated data augmentation pipeline:
+
+#### Basic Augmentations
+
+- Random rotations (±20°)
+- Random translations (±20%)
+- Shear and zoom transformations
+- Horizontal and vertical flips
+
+#### Advanced Augmentations
+
+- Color jitter
+- Random erasing (occlusion simulation)
+- Gaussian noise
+- Perspective transformations
+
+#### Batch-level Augmentations
+
+- MixUp: Combines pairs of images and labels
+- CutMix: Cuts and pastes patches between images
+
+These augmentations can be configured in the YAML configuration:
+
+```yaml
+data_augmentation:
+  enabled: true
+  rotation_range: 20
+  width_shift_range: 0.2
+  height_shift_range: 0.2
+  zoom_range: 0.2
+  horizontal_flip: true
+  color_jitter: true
+  random_erasing: true
+  perspective_transform: true
+  batch_augmentations: true
+  mixup: true
+  cutmix: true
+```
+
+## Training Pipeline
+
+The training pipeline is managed by the `Trainer` class, which handles:
+
+- Model compilation and configuration
+- Learning rate scheduling
+- Callbacks setup (checkpoints, early stopping, TensorBoard)
+- Memory management
+- Progress tracking
+- Model evaluation
+
+### Key Features
+
+- **Flexible Callbacks**: Custom progress bar, TensorBoard integration, etc.
+- **Automatic Class Weighting**: Handles class imbalance in datasets
+- **Hardware Monitoring**: Tracks GPU usage during training
+- **Checkpoint Management**: Saves and loads model checkpoints
+- **Gradient Clipping**: Prevents gradient explosion during training
+
+### Batch Training
+
+For training multiple models in sequence:
 
 ```python
-from src.training.learning_rate_scheduler import get_warmup_scheduler
+from src.training.batch_trainer import BatchTrainer
 
-# Get warmup scheduler
-scheduler = get_warmup_scheduler(config)
-
-# Add to training callbacks
-callbacks.append(scheduler)
+batch_trainer = BatchTrainer(config)
+results = batch_trainer.train_models(['ResNet50', 'EfficientNetB0', 'MobileNetV2'])
 ```
 
-## Memory Management
+## Evaluation & Metrics
 
-Utilities for monitoring and optimizing memory usage during training.
+The evaluation system provides comprehensive metrics and visualizations:
+
+### Classification Metrics
+
+- Accuracy
+- Precision (macro and weighted)
+- Recall (macro and weighted)
+- F1-score (macro and weighted)
+- ROC AUC (macro and weighted)
+
+### Per-class Metrics
+
+- Class-specific precision/recall/F1
+- Support counts
+
+### Visualizations
+
+- Confusion matrices
+- ROC curves
+- Precision-recall curves
+- Loss and accuracy curves
+
+Example visualization code:
 
 ```python
-from src.utils.memory_utils import clean_memory, log_memory_usage
+from src.evaluation.visualization import plot_confusion_matrix, plot_roc_curve
 
-# Log current memory usage
-memory_stats = log_memory_usage(prefix="Before training: ")
+# Plot confusion matrix
+plot_confusion_matrix(y_true, y_pred, class_names, save_path="confusion_matrix.png")
 
-# Clean up memory after training
-clean_memory(clean_gpu=True)
+# Plot ROC curves
+plot_roc_curve(y_true, y_pred_proba, class_names, save_path="roc_curves.png")
 ```
 
-# Model Registry System
+## Experiment Tracking
 
-## Overview
+DeepCropDX includes a comprehensive Model Registry for tracking experiments:
 
-The Model Registry is a centralized system for tracking, comparing, and managing all your trained models. It automatically captures metadata about each training run and provides tools to easily find and load the best performing models.
+### Registry Features
 
-## Key Features
+- Tracks all training runs and their performance
+- Automatically saves model artifacts and metadata
+- Provides tools to compare different models
+- Generates reports on model performance
 
-### 1. Automatic Model Tracking
-
-- Seamlessly integrated with the `Trainer` class to automatically register models
-- Captures key metadata: accuracy, loss, training time, model architecture
-- Tracks the location of model files, checkpoints, and TensorBoard logs
-
-### 2. Model Management
-
-- Maintains a registry of all trained models and their versions
-- Identifies best-performing models based on configurable metrics
-- Supports model versioning with timestamped run IDs
-
-### 3. Performance Comparison
-
-- Compare different models side-by-side
-- Generate comparative visualizations of key metrics
-- Easily identify which models and hyperparameters work best
-
-### 4. Command-Line Interface
-
-- `registry_cli.py` provides a full-featured CLI for registry management
-- List models, view details, generate reports, and more
-- Perform model comparisons from the command line
-
-### 5. Reporting
-
-- Generate HTML reports of your model inventory
-- View detailed metrics and performance statistics
-- Keep track of your experiments and results
-
-## Directory Structure
-
-The registry maintains a structured organization for all model artifacts:
-
-```
-trials/
-├── registry.json              # Central registry database
-├── registry_report.html       # Generated HTML report
-├── comparisons/               # Model comparison visualizations
-│   ├── comparison_test_accuracy.png
-│   └── comparison_combined.png
-├── ModelName1/                # Model-specific directory
-│   └── run_YYYYMMDD_HHMMSS_001/  # Run-specific directory
-│       ├── ModelName1_final.h5   # Saved model file
-│       ├── final_metrics.json    # Performance metrics
-│       ├── model_summary.txt     # Architecture summary
-│       ├── training/             # Training artifacts
-│       │   ├── checkpoints/      # Model checkpoints
-│       │   ├── plots/            # Training plots
-│       │   └── tensorboard/      # TensorBoard logs
-│       └── evaluation/           # Evaluation artifacts
-│           ├── metrics.json      # Evaluation metrics
-│           └── plots/            # Evaluation plots
-└── ModelName2/                # Another model
-```
-
-## Using the Model Registry
-
-### Programmatic Usage
+### Experiment Management
 
 ```python
-from model_registry.registry_manager import ModelRegistryManager
+from src.model_registry.registry_manager import ModelRegistryManager
 
-# Initialize the registry
+# Initialize registry
 registry = ModelRegistryManager()
 
-# Scan for models that aren't in the registry yet
-registry.scan_trials()
-
-# Get the best performing model
-model = registry.get_model("ResNet50", best=True)
-
-# Get information about a model's runs
-run_info = registry.get_run_info("EfficientNetB0")
+# Get best performing model
+best_model = registry.get_model("ResNet50", best=True)
 
 # Compare models
 comparison = registry.compare_models(
     model_names=["ResNet50", "EfficientNetB0", "MobileNetV2"],
     metrics=["test_accuracy", "training_time"]
 )
+
+# Generate HTML report
+registry.generate_report()
 ```
 
-### Command-Line Usage
+## Optimization Techniques
 
-```bash
-# List all models in the registry
-python -m src.scripts.registry_cli list
+### Learning Rate Optimization
 
-# Show details for a specific model
-python -m src.scripts.registry_cli details --model ResNet50
+- **Warmup Scheduling**: Gradually increases learning rate to prevent early instability
+- **Cosine Decay**: Smooth learning rate reduction following cosine curve
+- **One-Cycle Policy**: Fast increase then gradual decrease for super-convergence
+- **Learning Rate Finder**: Automatically finds optimal learning rates
 
-# Compare multiple models
-python -m src.scripts.registry_cli compare --models ResNet50 EfficientNetB0 MobileNetV2
+### Model Optimization
 
-# Generate an HTML report of all models
-python -m src.scripts.registry_cli report
+- **Quantization**: Reduces model size and improves inference speed
+- **Pruning**: Removes redundant connections for smaller models
+- **Mixed Precision Training**: Uses FP16 for faster training
+- **Gradient Clipping**: Prevents exploding gradients
 
-# Scan for new models and runs
-python -m src.scripts.registry_cli scan
-```
+### Performance Optimization
 
-## Integration with Training
+- **Memory Management**: Prevents memory leaks during training
+- **Efficient Data Pipeline**: Optimized for throughput with prefetching
+- **Hardware Utilization**: Makes efficient use of available hardware
 
-The Model Registry is automatically integrated with the training process. When you train a model using the `Trainer` class, it will:
+## Contributing
 
-1. Register the model in the registry
-2. Track key performance metrics
-3. Save all necessary metadata
-4. Update registry records
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-No additional code is needed - it just works!
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## Benefits
+## License
 
-- **Reproducibility**: Easily find and reproduce your best models
-- **Organization**: Keep track of all your experiments in one place
-- **Efficiency**: Quickly identify which approaches work best
-- **Collaboration**: Share results with team members through standardized reports
+This project is licensed under the MIT License - see the LICENSE file for details.
