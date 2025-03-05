@@ -1,5 +1,4 @@
 # src/training/model_trainer.py
-# Compare this snippet from src/training/training_pipeline.py:
 """
 Model trainer module for handling individual model training processes.
 This is extracted from main.py to separate the training logic from the command-line interface.
@@ -17,7 +16,16 @@ from src.utils.logger import Logger
 from src.training.lr_finder import find_optimal_learning_rate
 from src.utils.report_generator import ReportGenerator
 from src.model_registry.registry_manager import ModelRegistryManager
-from ..utils.memory_utils import optimize_memory_use
+from src.utils.memory_utils import optimize_memory_use
+
+
+# Initialize module-level logger
+paths = get_paths()
+logger = Logger(
+    name="model_trainer",
+    log_dir=paths.logs_dir,  # You should have a logs_dir in your paths
+    logger_type="training",
+)
 
 
 def train_model(
@@ -65,7 +73,7 @@ def train_model(
     try:
         # Optimize memory before model creation
         optimize_memory_use()
-        logger.info(f"Memory optimized before training model: {model_name}")
+        batch_logger.log_info(f"Memory optimized before training model: {model_name}")
 
         # Get model hyperparameters (combining defaults with model-specific)
         from src.config.config_loader import ConfigLoader

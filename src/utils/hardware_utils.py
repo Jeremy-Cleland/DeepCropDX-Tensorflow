@@ -1,7 +1,7 @@
 """
 Hardware configuration utilities for TensorFlow setup.
 
-This module provides functions to configure TensorFlow for optimal 
+This module provides functions to configure TensorFlow for optimal
 performance on different hardware platforms (CPU, GPU, Apple Silicon).
 """
 
@@ -48,10 +48,22 @@ def configure_hardware(config):
     if is_apple_silicon:
         try:
             # Apply Metal optimizations from memory_utils
-            from ..utils.memory_utils import configure_metal_for_stability
+            from src.utils.memory_utils import configure_metal_for_stability
 
             metal_optimized = configure_metal_for_stability()
             hardware_info["metal_optimized"] = metal_optimized
+
+            # Additional Metal optimizations for better performance
+            os.environ["TF_METAL_PREFERRED_MEMORY_TYPE"] = (
+                "GDC"  # Use dedicated GPU memory
+            )
+            os.environ["TF_METAL_ALLOCATOR_STRATEGY"] = "eager"
+            os.environ["TF_METAL_DEVICE_MEMORY_FRACTION"] = (
+                "0.95"  # Use 95% of available GPU memory
+            )
+            os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+
+            hardware_info["metal_enhancements"] = True
 
             # Add fallback for graph optimizer issues
             if not metal_optimized:
@@ -70,12 +82,18 @@ def configure_hardware(config):
             print(f"Warning: Error configuring Metal backend: {e}")
             hardware_info["metal_error"] = str(e)
 
-    # Configure CPU threads
+    # Configure CPU threads more aggressively
     num_threads = config.get("hardware", {}).get("num_threads", 0)
-    if num_threads > 0:
-        tf.config.threading.set_inter_op_parallelism_threads(num_threads)
-        tf.config.threading.set_intra_op_parallelism_threads(num_threads)
-        hardware_info["num_threads"] = num_threads
+    if num_threads <= 0:
+        # If not specified, use all available logical CPUs
+        import psutil
+
+        num_threads = psutil.cpu_count(logical=True)
+
+    # Set both inter-op and intra-op parallelism
+    tf.config.threading.set_inter_op_parallelism_threads(num_threads)
+    tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+    hardware_info["num_threads"] = num_threads
 
     return hardware_info
 

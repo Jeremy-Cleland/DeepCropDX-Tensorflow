@@ -19,8 +19,8 @@ from src.utils.memory_utils import (
     clean_memory,
     log_memory_usage,
     memory_monitoring_decorator,
+    optimize_memory_use,
 )
-from ..utils.memory_utils import optimize_memory_use
 
 
 class BatchTrainer:

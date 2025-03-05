@@ -15,7 +15,7 @@ paths:
   logs: trials
 
 training:
-  batch_size: 128
+  batch_size: 256
   epochs: 50
   learning_rate: 0.001
   optimizer: adam
@@ -53,8 +53,9 @@ hardware:
   use_metal: true
   mixed_precision: true
   memory_growth: true
+  num_threads: 16
   num_parallel_calls: 16
-  prefetch_buffer_size: 8
+  prefetch_buffer_size: 16
 
 logging:
   level: INFO
@@ -74,7 +75,7 @@ data:
   save_splits: true         # Whether to save dataset splits to disk
   use_saved_splits: true   # Whether to use saved splits when available
   splits_dir: "splits"      # Directory name for storing splits
-  cache_parsed_images: false  # Whether to cache parsed images in memory
+  cache_parsed_images: true  # Whether to cache parsed images in memory
 
 data_augmentation:
   enabled: true

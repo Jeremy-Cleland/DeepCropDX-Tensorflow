@@ -33,12 +33,12 @@ class DatasetPipeline:
         if isinstance(self.image_size, int):
             self.image_size = (self.image_size, self.image_size)
 
-        # Get batch and performance settings
-        training_config = config.get("training", {})
+        # Get batch size from training config
+        training_config = self.config.get("training", {})
         self.batch_size = training_config.get("batch_size", 32)
 
-        # Get hardware configuration for performance tuning
-        hardware_config = config.get("hardware", {})
+        # Configure data pipeline parallelism
+        hardware_config = self.config.get("hardware", {})
         self.num_parallel_calls = hardware_config.get(
             "num_parallel_calls", tf.data.AUTOTUNE
         )

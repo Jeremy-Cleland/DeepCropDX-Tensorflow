@@ -224,10 +224,13 @@ def optimize_memory_use():
         and platform.system() == "Darwin"
         and platform.machine() == "arm64"
     ):
+        os.environ["TF_METAL_ALLOCATOR_STRATEGY"] = "eager"
         os.environ["TF_METAL_DEVICE_MEMORY_LIMIT"] = (
-            "0.9"  # Use 90% of available memory
+            "0.95"  # Use 90% of available memory
         )
-        logger.info("Set Metal device memory limit to 90% for Apple Silicon")
+        logger.info(
+            "Set Metal device memory limit to 90% for Apple Silicon and allocator to eager"
+        )
 
     # Log current memory state after optimization
     log_memory_usage(prefix="Memory after optimization: ")

@@ -1,6 +1,6 @@
 # Project Code Overview
 
-*Generated on 2025-03-05 14:52:39*
+*Generated on 2025-03-05 15:51:15*
 
 ## Table of Contents
 
@@ -15,6 +15,7 @@
 - [src/config/config_manager.py](#src-config-config_manager-py)
 - [src/config/model_configs/__init__.py](#src-config-model_configs-__init__-py)
 - [src/config/model_configs/models.yaml](#src-config-model_configs-models-yaml)
+- [src/eval/evaluation_pipeline.py](#src-eval-evaluation_pipeline-py)
 - [src/evaluation/__init__.py](#src-evaluation-__init__-py)
 - [src/evaluation/metrics.py](#src-evaluation-metrics-py)
 - [src/evaluation/visualization.py](#src-evaluation-visualization-py)
@@ -1633,6 +1634,41 @@ AttentionResNet50:
 
 ---
 
+### src/eval/evaluation_pipeline.py
+
+```python
+"""
+Evaluation pipeline for trained models.
+"""
+
+import os
+import logging
+import tensorflow as tf
+from ..utils.memory_utils import optimize_memory_use
+
+logger = logging.getLogger("plant_disease_detection")
+
+
+def run_evaluation(model_path, data_loader, config):
+    """Run evaluation on a trained model"""
+    # Optimize memory before evaluation
+    optimize_memory_use()
+    logger.info(f"Memory optimized before evaluating model: {model_path}")
+
+    # Load the model
+    model = tf.keras.models.load_model(model_path)
+
+    # Evaluate the model
+    results = model.evaluate(data_loader, verbose=1)
+
+    # Log the results
+    logger.info(f"Evaluation results: {results}")
+
+    return results
+```
+
+---
+
 ### src/evaluation/__init__.py
 
 ```python
@@ -1671,20 +1707,25 @@ def calculate_metrics(y_true, y_pred, y_pred_prob=None, class_names=None):
     Returns:
         Dictionary with calculated metrics
     """
-    # Convert one-hot encoded labels to class indices if needed
+    # Ensure proper conversion from one-hot vectors
     if y_true.ndim > 1 and y_true.shape[1] > 1:
         y_true_indices = np.argmax(y_true, axis=1)
     else:
         y_true_indices = y_true
 
+    # Same for predictions
     if y_pred.ndim > 1 and y_pred.shape[1] > 1:
         y_pred_indices = np.argmax(y_pred, axis=1)
     else:
         y_pred_indices = y_pred
 
-    # Calculate basic metrics
+    # Calculate accuracy and ensure it's a native Python float
+    accuracy = float(accuracy_score(y_true_indices, y_pred_indices))
+
+    # Explicitly include test_accuracy
     metrics = {
-        "accuracy": accuracy_score(y_true_indices, y_pred_indices),
+        "accuracy": accuracy,
+        "test_accuracy": accuracy,
         "precision_macro": precision_score(
             y_true_indices, y_pred_indices, average="macro", zero_division=0
         ),
@@ -2314,19 +2355,24 @@ from src.utils.hardware_utils import configure_hardware, print_hardware_summary
 from src.training.training_pipeline import (
     execute_training_pipeline,
     generate_training_reports,
-    clean_up_resources
+    clean_up_resources,
 )
 from src.utils.error_handling import handle_exception
+from src.utils.memory_utils import optimize_memory_use
 
 
 def main() -> int:
     """
     Main entry point for the plant disease detection training system.
-    
+
     Returns:
         int: Exit code (0 for success, 1 for failure)
     """
     try:
+        # Optimize memory at application startup
+        optimize_memory_use()
+        print("Memory optimized at application startup")
+
         # Handle command line arguments and load configuration
         config_manager, config, should_print_hardware = handle_cli_args()
 
@@ -2344,11 +2390,9 @@ def main() -> int:
 
         # Execute the training pipeline
         batch_trainer, total_time, exit_code = execute_training_pipeline(
-            config, 
-            config_manager, 
-            hardware_info
+            config, config_manager, hardware_info
         )
-        
+
         # Generate reports if training was successful
         if batch_trainer and exit_code == 0:
             generate_training_reports(batch_trainer, total_time)
@@ -2362,7 +2406,7 @@ def main() -> int:
     finally:
         # Always clean up resources at the end
         clean_up_resources()
-    
+
     return exit_code
 
 
@@ -8467,7 +8511,12 @@ from src.config.config import get_paths
 from src.utils.logger import Logger
 from src.utils.report_generator import ReportGenerator
 from src.training.model_trainer import train_model
-from src.utils.memory_utils import clean_memory, log_memory_usage, memory_monitoring_decorator
+from src.utils.memory_utils import (
+    clean_memory,
+    log_memory_usage,
+    memory_monitoring_decorator,
+    optimize_memory_use,
+)
 
 
 class BatchTrainer:
@@ -8475,7 +8524,7 @@ class BatchTrainer:
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize the batch trainer
-        
+
         Args:
             config: Configuration dictionary
         """
@@ -8505,13 +8554,13 @@ class BatchTrainer:
         project_info = self.config.get("project", {})
         project_name = project_info.get("name", "Plant Disease Detection")
         project_version = project_info.get("version", "1.0.0")
-        
+
         self.batch_logger.log_info(f"Starting {project_name} v{project_version}")
         self.batch_logger.log_config(self.config)
 
     def set_models_to_train(self, models: List[str]) -> None:
         """Set the list of models to train in this batch.
-        
+
         Args:
             models: List of model names to train
         """
@@ -8522,7 +8571,7 @@ class BatchTrainer:
             )
 
     def run_batch_training(
-        self, 
+        self,
         data_loader: Any,
         model_factory: Any,
         train_data: tf.data.Dataset,
@@ -8533,17 +8582,17 @@ class BatchTrainer:
         attention_type: Optional[str] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Run batch training for all specified models.
-        
+
         Args:
             data_loader: DataLoader instance
-            model_factory: ModelFactory instance 
+            model_factory: ModelFactory instance
             train_data: Training dataset
             val_data: Validation dataset
             test_data: Test dataset (optional)
             class_names: Dictionary mapping class indices to names
             resume: Whether to resume training from latest checkpoint
             attention_type: Type of attention mechanism to use (optional)
-            
+
         Returns:
             Dictionary of results for each model
         """
@@ -8552,19 +8601,31 @@ class BatchTrainer:
         self.successful_models = 0
         self.failed_models = 0
 
+        # Optimize memory before batch training begins
+        optimize_memory_use()
+        self.batch_logger.log_info("Memory optimized before batch training")
+
         # Train all specified models
-        for model_name in (model_pbar := tqdm(self.models_to_train, desc="Models", position=0)):
+        for model_name in (
+            model_pbar := tqdm(self.models_to_train, desc="Models", position=0)
+        ):
             model_pbar.set_description(f"Training {model_name}")
 
+            # Optimize memory before each model training
+            optimize_memory_use()
+            self.batch_logger.log_info(
+                f"Memory optimized before training model: {model_name}"
+            )
+
             model_start_time = time.time()
-            
+
             # Clean memory before training each model
             clean_memory(clean_gpu=True)
-            
+
             # Log memory usage before training
             self.batch_logger.log_info(f"Starting training for model: {model_name}")
             log_memory_usage(prefix=f"Before training {model_name}: ")
-            
+
             success, metrics = train_model(
                 model_name,
                 self.config,
@@ -8578,10 +8639,10 @@ class BatchTrainer:
                 resume=resume,
                 attention_type=attention_type,
             )
-            
+
             # Log memory usage after training
             log_memory_usage(prefix=f"After training {model_name}: ")
-            
+
             model_time = time.time() - model_start_time
 
             self.results[model_name] = metrics
@@ -8604,21 +8665,27 @@ class BatchTrainer:
                 f"Time: {model_time:.2f}s, Accuracy: {accuracy:.4f}"
             )
 
+            # Optimize memory after each model is trained
+            optimize_memory_use()
+            self.batch_logger.log_info(
+                f"Memory cleaned after training model: {model_name}"
+            )
+
         return self.results
 
     def generate_comparison_report(self) -> Optional[str]:
         """Generate a comparison report for all successfully trained models.
-        
+
         Returns:
             Path to the generated report, or None if no report was generated
         """
         # Don't generate a report if there's only one model or no successful models
         if len(self.results) <= 1 or self.successful_models == 0:
             return None
-            
+
         if not self.config.get("reporting", {}).get("generate_html_report", True):
             return None
-            
+
         try:
             comparison_data = []
             for model_name, metrics in self.results.items():
@@ -8636,18 +8703,18 @@ class BatchTrainer:
                         f"Model comparison report generated at {comparison_path}"
                     )
                 return comparison_path
-                
+
         except Exception as e:
             error_msg = f"Error generating comparison report: {e}"
             print(error_msg)
             if self.batch_logger:
                 self.batch_logger.log_error(error_msg)
-                
+
         return None
 
     def save_batch_summary(self, total_time: float) -> None:
         """Save batch training summary metrics.
-        
+
         Args:
             total_time: Total time spent on batch training in seconds
         """
@@ -8682,7 +8749,7 @@ class BatchTrainer:
 
         # Save final batch metrics
         self.batch_logger.save_final_metrics(batch_metrics)
-        
+
     def cleanup_resources(self) -> None:
         """
         Clean up resources after batch training to prevent memory leaks.
@@ -8691,30 +8758,35 @@ class BatchTrainer:
         # Log memory stats before cleanup
         self.batch_logger.log_info("Starting resource cleanup...")
         before_cleanup = log_memory_usage(prefix="Before cleanup: ")
-        
+
         # Clean TensorFlow session and force garbage collection
         clean_memory(clean_gpu=True)
-        
+
         # Release large objects
-        if hasattr(self, 'results') and self.results:
+        if hasattr(self, "results") and self.results:
             # Keep basic info but release any large data
             for model_name in self.results:
-                if 'model' in self.results[model_name]:
-                    del self.results[model_name]['model']
-                if 'history' in self.results[model_name]:
+                if "model" in self.results[model_name]:
+                    del self.results[model_name]["model"]
+                if "history" in self.results[model_name]:
                     # Retain just the final epoch values
-                    history = self.results[model_name]['history']
-                    self.results[model_name]['history'] = {k: [v[-1]] for k, v in history.items() if isinstance(v, list)}
-        
+                    history = self.results[model_name]["history"]
+                    self.results[model_name]["history"] = {
+                        k: [v[-1]] for k, v in history.items() if isinstance(v, list)
+                    }
+
         # Run another garbage collection pass
         gc.collect()
-        
+
         # Log memory stats after cleanup
         after_cleanup = log_memory_usage(prefix="After cleanup: ")
-        
+
         # Calculate memory freed
         memory_freed = before_cleanup["rss_mb"] - after_cleanup["rss_mb"]
-        self.batch_logger.log_info(f"Cleanup complete. Memory freed: {memory_freed:.1f}MB")```
+        self.batch_logger.log_info(
+            f"Cleanup complete. Memory freed: {memory_freed:.1f}MB"
+        )
+```
 
 ---
 
@@ -9296,36 +9368,30 @@ def find_optimal_learning_rate(
         else:
             smoothed_losses = losses
 
-        # Find the point of steepest descent (minimum gradient)
-        try:
-            # Calculate the gradients of the loss curve
-            gradients = np.gradient(smoothed_losses)
-
-            # Find where the gradient is steepest (most negative)
+        # Fix where optimal learning rate is determined
+        def _get_optimal_lr(lrs, losses):
+            # Find the point with the steepest negative gradient
+            gradients = np.gradient(losses) / np.gradient(np.log10(lrs))
             optimal_idx = np.argmin(gradients)
+            optimal_lr = lrs[optimal_idx]
 
-            # The optimal lr is typically a bit lower than the minimum gradient point
-            optimal_lr = (
-                learning_rates[optimal_idx] / 10.0
-            )  # Division by 10 is a rule of thumb
-        except Exception as e:
-            logger.warning(
-                f"Error finding optimal learning rate: {e}. Using fallback method."
-            )
-            # Fallback: Find point with fastest loss decrease
-            loss_ratios = losses[1:] / losses[:-1]
-            fastest_decrease_idx = np.argmin(loss_ratios)
-            if fastest_decrease_idx < len(learning_rates) - 1:
-                optimal_lr = learning_rates[fastest_decrease_idx]
-            else:
-                optimal_lr = learning_rates[len(learning_rates) // 2] / 10.0
+            # Ensure optimal_lr is a float, not a string or other type
+            if not isinstance(optimal_lr, (int, float)):
+                try:
+                    optimal_lr = float(optimal_lr)
+                except (ValueError, TypeError):
+                    print(
+                        f"Warning: Could not convert optimal learning rate to float, using default"
+                    )
+                    optimal_lr = 1e-3  # Default to reasonable value
 
-        # Ensure we found a reasonable learning rate
-        if optimal_lr <= min_lr or optimal_lr >= max_lr:
-            logger.warning(
-                f"Optimal learning rate ({optimal_lr:.2e}) is at or outside the bounds "
-                f"of the tested range ({min_lr:.2e} - {max_lr:.2e}). Consider adjusting the range."
-            )
+            return optimal_lr
+
+        # When returning the optimal learning rate
+        optimal_lr = _get_optimal_lr(learning_rates, smoothed_losses)
+
+        # Format as float for printing
+        print(f"Optimal learning rate: {float(optimal_lr):.2e}")
 
         # Plot the results if requested
         if plot_results:
@@ -9335,7 +9401,7 @@ def find_optimal_learning_rate(
             f"Learning rate finder complete. Optimal learning rate: {optimal_lr:.2e}"
         )
 
-        return learning_rates, losses, optimal_lr
+        return learning_rates, losses, float(optimal_lr)
 
     except Exception as e:
         # Restore original weights and learning rate in case of error
@@ -9867,6 +9933,14 @@ class AdaptiveLearningRateCallback(tf.keras.callbacks.Callback):
         # Get current learning rate
         lr = K.get_value(self.model.optimizer.lr)
 
+        # Ensure lr is a numeric value, not a string
+        if isinstance(lr, str):
+            try:
+                lr = float(lr)
+            except ValueError:
+                print(f"Warning: Could not convert learning rate '{lr}' to float")
+                return
+
         # Check if we're better than the previous best
         if self.monitor_op(current - self.min_delta, self.best):
             self.best = current
@@ -9914,7 +9988,6 @@ class AdaptiveLearningRateCallback(tf.keras.callbacks.Callback):
 
 ```python
 # src/training/model_trainer.py
-# Compare this snippet from src/training/training_pipeline.py:
 """
 Model trainer module for handling individual model training processes.
 This is extracted from main.py to separate the training logic from the command-line interface.
@@ -9932,6 +10005,16 @@ from src.utils.logger import Logger
 from src.training.lr_finder import find_optimal_learning_rate
 from src.utils.report_generator import ReportGenerator
 from src.model_registry.registry_manager import ModelRegistryManager
+from src.utils.memory_utils import optimize_memory_use
+
+
+# Initialize module-level logger
+paths = get_paths()
+logger = Logger(
+    name="model_trainer",
+    log_dir=paths.logs_dir,  # You should have a logs_dir in your paths
+    logger_type="training",
+)
 
 
 def train_model(
@@ -9977,6 +10060,10 @@ def train_model(
         batch_logger.log_info(f"Starting training for model: {model_name}")
 
     try:
+        # Optimize memory before model creation
+        optimize_memory_use()
+        batch_logger.log_info(f"Memory optimized before training model: {model_name}")
+
         # Get model hyperparameters (combining defaults with model-specific)
         from src.config.config_loader import ConfigLoader
 
@@ -10389,6 +10476,37 @@ class Trainer:
                 )
 
         return optimizer
+
+    def save_final_model(self, model, model_name, run_dir):
+        """
+        Save the final model in the recommended format.
+
+        Args:
+            model: The trained model to save
+            model_name: Name of the model
+            run_dir: Directory where model should be saved
+
+        Returns:
+            str: Path to the saved model
+        """
+        from pathlib import Path
+
+        # Use .keras extension instead of .h5
+        model_path = Path(run_dir) / f"{model_name}_final.keras"
+
+        # Use the native Keras format
+        try:
+            model.save(str(model_path), save_format="keras")
+            self.logger.info(f"Model saved to {model_path} using native Keras format")
+        except Exception as e:
+            # Fallback to HDF5 format if native format fails
+            self.logger.warning(f"Failed to save in native format: {e}")
+            fallback_path = Path(run_dir) / f"{model_name}_final.h5"
+            model.save(str(fallback_path), save_format="h5")
+            self.logger.info(f"Saved model in HDF5 format: {fallback_path}")
+            model_path = fallback_path
+
+        return str(model_path)
 
     def train(
         self,
@@ -10853,9 +10971,8 @@ class Trainer:
                     final_metrics[f"best_{key}_epoch"] = best_epoch
 
         # Save final model
-        model_path = Path(run_dir) / f"{model_name}_final.h5"
-        model.save(str(model_path))
-        final_metrics["model_path"] = str(model_path)
+        model_path = self.save_final_model(model, model_name, run_dir)
+        final_metrics["model_path"] = model_path
 
         # Save history to CSV
         history_df = pd.DataFrame(history.history)
@@ -11006,34 +11123,35 @@ from src.preprocessing.data_loader import DataLoader
 from src.models.model_factory import ModelFactory
 from src.training.batch_trainer import BatchTrainer
 from src.model_registry.registry_manager import ModelRegistryManager
+from ..utils.memory_utils import optimize_memory_use
 
 
 def load_datasets(
-    batch_trainer: BatchTrainer,
-    config_manager: Any,
-    data_loader: DataLoader
+    batch_trainer: BatchTrainer, config_manager: Any, data_loader: DataLoader
 ) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset, Dict[int, str]]:
     """
     Load and prepare datasets for training.
-    
+
     Args:
         batch_trainer: BatchTrainer instance for logging
         config_manager: Configuration manager
         data_loader: DataLoader instance
-        
+
     Returns:
         Tuple containing training, validation, test datasets and class names
-        
+
     Raises:
         ValueError: If no classes are found in the dataset
         Exception: For other data loading errors
     """
     batch_trainer.batch_logger.log_info("Loading datasets...")
-    
+
     try:
         # Log data loading strategy
         if config_manager.should_use_tf_data():
-            batch_trainer.batch_logger.log_info("Using TensorFlow Data API for dataset loading")
+            batch_trainer.batch_logger.log_info(
+                "Using TensorFlow Data API for dataset loading"
+            )
         else:
             batch_trainer.batch_logger.log_info("Using standard data loading pipeline")
 
@@ -11045,13 +11163,17 @@ def load_datasets(
         if not class_names:
             raise ValueError("No classes found in the dataset")
 
-        batch_trainer.batch_logger.log_info(f"Datasets loaded with {len(class_names)} classes")
+        batch_trainer.batch_logger.log_info(
+            f"Datasets loaded with {len(class_names)} classes"
+        )
         batch_trainer.batch_logger.log_info(f"Classes: {list(class_names.values())}")
-        
+
         return train_data, val_data, test_data, class_names
-        
+
     except ValueError as e:
-        batch_trainer.batch_logger.log_error(f"Error loading datasets (invalid data): {str(e)}")
+        batch_trainer.batch_logger.log_error(
+            f"Error loading datasets (invalid data): {str(e)}"
+        )
         raise
     except Exception as e:
         batch_trainer.batch_logger.log_error(f"Error loading datasets: {str(e)}")
@@ -11059,32 +11181,35 @@ def load_datasets(
 
 
 def execute_training_pipeline(
-    config: Dict[str, Any],
-    config_manager: Any,
-    hardware_info: Dict[str, Any]
+    config: Dict[str, Any], config_manager: Any, hardware_info: Dict[str, Any]
 ) -> Tuple[BatchTrainer, float, int]:
     """
     Execute the full training pipeline.
-    
+
     Args:
         config: Configuration dictionary
         config_manager: Configuration manager
         hardware_info: Hardware configuration information
-        
+
     Returns:
         Tuple containing the batch trainer, total training time, and exit code
-        
+
     Raises:
         Exception: For any training pipeline errors
     """
+
     # Start timing
     start_time = time.time()
     exit_code = 0
-    
+
     try:
-        # Set up batch trainer
+        # Set up batch trainer first
         batch_trainer = BatchTrainer(config)
         batch_trainer.setup_batch_logging()
+
+        # Now optimize memory and log it immediately after
+        optimize_memory_use()
+        batch_trainer.batch_logger.log_info("Memory optimized for training pipeline")
 
         # Get models to train
         models_to_train = config_manager.get_models_to_train()
@@ -11093,7 +11218,7 @@ def execute_training_pipeline(
         # Log hardware configuration
         batch_trainer.batch_logger.log_info(f"Hardware configuration: {hardware_info}")
         batch_trainer.batch_logger.log_hardware_metrics(step=0)
-        
+
         # Choose data loader implementation and load data
         data_loader = DataLoader(config)
         train_data, val_data, test_data, class_names = load_datasets(
@@ -11125,18 +11250,19 @@ def execute_training_pipeline(
         # Calculate total time and save summary
         total_time = time.time() - start_time
         batch_trainer.save_batch_summary(total_time)
-        
+
         # Clean up resources to prevent memory leaks
         batch_trainer.cleanup_resources()
 
     except Exception as e:
         import traceback
+
         print(f"Error in training pipeline: {str(e)}")
         print(traceback.format_exc())
-        
+
         # Try to clean up resources even on failure
         clean_up_resources()
-        
+
         exit_code = 1
         return None, 0.0, exit_code
 
@@ -11146,7 +11272,7 @@ def execute_training_pipeline(
 def generate_training_reports(batch_trainer: BatchTrainer, total_time: float) -> None:
     """
     Generate final reports and print summary for completed training.
-    
+
     Args:
         batch_trainer: BatchTrainer instance
         total_time: Total training time in seconds
@@ -11169,13 +11295,14 @@ def clean_up_resources() -> None:
     """
     # Clear TensorFlow session
     tf.keras.backend.clear_session()
-    
+
     # Force garbage collection
     gc.collect()
-    
+
     # Additional memory cleanup if needed
-    if hasattr(tf.keras.backend, 'set_session'):
-        tf.keras.backend.set_session(tf.compat.v1.Session())```
+    if hasattr(tf.keras.backend, "set_session"):
+        tf.keras.backend.set_session(tf.compat.v1.Session())
+```
 
 ---
 
@@ -11392,146 +11519,74 @@ performance on different hardware platforms (CPU, GPU, Apple Silicon).
 import platform
 import tensorflow as tf
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 
 def configure_hardware(config):
-    """Configure TensorFlow for hardware acceleration
-
-    This function configures TensorFlow based on the available hardware and
-    the provided configuration. It handles CPU threading, GPU memory growth,
-    Apple Silicon Metal support, and mixed precision training.
+    """
+    Configure hardware settings for optimal training performance.
 
     Args:
-        config: Configuration dictionary with hardware settings
+        config: Configuration dictionary
 
     Returns:
-        Dictionary with hardware configuration information
+        dict: Hardware information and configuration
     """
+    import platform
+    import os
+    import tensorflow as tf
+
     hardware_info = {
         "platform": platform.system(),
-        "cpu_type": platform.machine(),
-        "tensorflow_version": tf.__version__,
-        "gpu_available": len(tf.config.list_physical_devices("GPU")) > 0,
-        "devices_used": [],
+        "platform_release": platform.release(),
+        "platform_version": platform.version(),
+        "architecture": platform.machine(),
+        "processor": platform.processor(),
     }
 
-    hardware_config = config.get("hardware", {})
-
-    # Set threading parameters FIRST (before any TF operations)
-    try:
-        tf.config.threading.set_inter_op_parallelism_threads(
-            hardware_config.get("inter_op_parallelism", 0)
-        )
-        tf.config.threading.set_intra_op_parallelism_threads(
-            hardware_config.get("intra_op_parallelism", 0)
-        )
-        print("Threading parameters configured successfully")
-    except RuntimeError as e:
-        print(f"Warning: Could not set threading parameters: {e}")
-
-    # Detect Apple Silicon
+    # Check for Apple Silicon
     is_apple_silicon = platform.system() == "Darwin" and platform.machine() == "arm64"
     hardware_info["is_apple_silicon"] = is_apple_silicon
 
-    # Configure TensorFlow for Metal on Apple Silicon
-    if (
-        hardware_config.get("use_metal", True)
-        and is_apple_silicon
-        and hardware_info["gpu_available"]
-    ):
-        print("Configuring TensorFlow for Metal on Apple Silicon")
-        hardware_info["using_metal"] = True
+    # Configure GPUs
+    gpus = tf.config.list_physical_devices("GPU")
+    hardware_info["num_gpus"] = len(gpus)
+    hardware_info["gpus"] = [gpu.name for gpu in gpus]
 
-        # Enable Metal
+    # Apply Metal-specific optimizations for Apple Silicon
+    if is_apple_silicon:
         try:
-            gpu_devices = tf.config.list_physical_devices("GPU")
-            if gpu_devices:
-                tf.config.experimental.set_visible_devices(gpu_devices[0], "GPU")
-                hardware_info["devices_used"].append("Metal GPU")
+            # Apply Metal optimizations from memory_utils
+            from ..utils.memory_utils import configure_metal_for_stability
 
-                # Enable memory growth to prevent allocating all GPU memory at once
-                if hardware_config.get("memory_growth", True):
-                    for gpu in gpu_devices:
-                        try:
-                            tf.config.experimental.set_memory_growth(gpu, True)
-                            print(f"Enabled memory growth for {gpu}")
-                        except Exception as e:
-                            print(
-                                f"Warning: Could not set memory growth for {gpu}: {e}"
-                            )
+            metal_optimized = configure_metal_for_stability()
+            hardware_info["metal_optimized"] = metal_optimized
 
-                # Use mixed precision if enabled
-                if hardware_config.get("mixed_precision", True):
-                    try:
-                        tf.keras.mixed_precision.set_global_policy("mixed_float16")
-                        print("Mixed precision enabled (float16)")
-                        hardware_info["mixed_precision"] = True
-                    except Exception as e:
-                        print(f"Warning: Could not set mixed precision: {e}")
-                        hardware_info["mixed_precision"] = False
-        except Exception as e:
-            print(f"Warning: Error configuring Metal: {e}")
-            hardware_info["error_configuring_metal"] = str(e)
-            hardware_info["using_metal"] = False
-
-    # For CUDA GPUs
-    elif hardware_info["gpu_available"] and hardware_config.get("use_gpu", True):
-        print("Configuring TensorFlow for CUDA GPU")
-        hardware_info["using_cuda"] = True
-
-        try:
-            # Get GPU details
-            gpu_devices = tf.config.list_physical_devices("GPU")
-            for i, gpu in enumerate(gpu_devices):
-                hardware_info["devices_used"].append(
-                    f"CUDA GPU {i}: {gpu.name if hasattr(gpu, 'name') else 'Unknown'}"
+            # Add fallback for graph optimizer issues
+            if not metal_optimized:
+                os.environ["TF_USE_LEGACY_KERAS"] = (
+                    "1"  # Use legacy Keras implementation
+                )
+                os.environ["TF_METAL_DISABLE_GRAPH_OPTIMIZER"] = (
+                    "1"  # Disable problematic optimizer
                 )
 
-            # Enable memory growth to prevent allocating all GPU memory at once
-            if hardware_config.get("memory_growth", True):
-                for gpu in gpu_devices:
-                    try:
-                        tf.config.experimental.set_memory_growth(gpu, True)
-                        print(f"Enabled memory growth for {gpu}")
-                    except Exception as e:
-                        print(f"Warning: Could not set memory growth for {gpu}: {e}")
-
-            # Use mixed precision if enabled
-            if hardware_config.get("mixed_precision", True):
-                try:
-                    tf.keras.mixed_precision.set_global_policy("mixed_float16")
-                    print("Mixed precision enabled (float16)")
-                    hardware_info["mixed_precision"] = True
-                except Exception as e:
-                    print(f"Warning: Could not set mixed precision: {e}")
-                    hardware_info["mixed_precision"] = False
-        except Exception as e:
-            print(f"Warning: Error configuring GPU: {e}")
-            hardware_info["error_configuring_gpu"] = str(e)
-    else:
-        print("Using CPU for computation")
-        hardware_info["using_cpu"] = True
-        hardware_info["devices_used"].append("CPU")
-
-    # Set memory limit if specified
-    memory_limit_mb = hardware_config.get("memory_limit_mb")
-    if memory_limit_mb:
-        try:
-            for gpu in tf.config.list_physical_devices("GPU"):
-                tf.config.experimental.set_virtual_device_configuration(
-                    gpu,
-                    [
-                        tf.config.experimental.VirtualDeviceConfiguration(
-                            memory_limit=memory_limit_mb
-                        )
-                    ],
+                hardware_info["metal_optimizer_disabled"] = True
+                print(
+                    "Disabled Metal graph optimizer due to known compatibility issues"
                 )
-            print(f"GPU memory limit set to {memory_limit_mb}MB")
-            hardware_info["memory_limit_mb"] = memory_limit_mb
         except Exception as e:
-            print(f"Warning: Could not set memory limit: {e}")
+            print(f"Warning: Error configuring Metal backend: {e}")
+            hardware_info["metal_error"] = str(e)
+
+    # Configure CPU threads
+    num_threads = config.get("hardware", {}).get("num_threads", 0)
+    if num_threads > 0:
+        tf.config.threading.set_inter_op_parallelism_threads(num_threads)
+        tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+        hardware_info["num_threads"] = num_threads
 
     return hardware_info
 
@@ -11847,6 +11902,31 @@ class Logger:
     def log_debug(self, message):
         """Log a debug message"""
         self.logger.debug(message)
+
+    def log_detailed_error(self, error, context=""):
+        """
+        Log detailed error information for better debugging.
+
+        Args:
+            error: The exception object
+            context: Context description where the error occurred
+        """
+        import traceback
+        from datetime import datetime
+        from pathlib import Path
+
+        self.logger.error(f"Error in {context}: {str(error)}")
+        self.logger.error(f"Error type: {type(error).__name__}")
+        self.logger.error(f"Traceback: {traceback.format_exc()}")
+
+        # Save error details to separate file for easier access
+        error_path = Path(self.log_dir) / "error_details.log"
+        with open(error_path, "a") as f:
+            f.write(f"\n--- Error at {datetime.now().isoformat()} ---\n")
+            f.write(f"Context: {context}\n")
+            f.write(f"Error: {str(error)}\n")
+            f.write(f"Type: {type(error).__name__}\n")
+            f.write(f"Traceback:\n{traceback.format_exc()}\n")
 
     def log_config(self, config):
         """Log the configuration used for training"""
@@ -12264,6 +12344,7 @@ import sys
 import psutil
 import logging
 from typing import Dict, Any, Optional, Callable
+import platform
 
 import tensorflow as tf
 import numpy as np
@@ -12274,46 +12355,46 @@ logger = logging.getLogger("plant_disease_detection")
 def get_memory_usage() -> Dict[str, Any]:
     """
     Get current memory usage statistics.
-    
+
     Returns:
         Dictionary with memory usage statistics
     """
     process = psutil.Process(os.getpid())
     memory_info = process.memory_info()
-    
+
     # Get system memory info
     system_memory = psutil.virtual_memory()
-    
+
     memory_stats = {
         "rss_mb": memory_info.rss / (1024 * 1024),  # Resident Set Size in MB
         "vms_mb": memory_info.vms / (1024 * 1024),  # Virtual Memory Size in MB
         "percent_used": process.memory_percent(),
         "system_total_gb": system_memory.total / (1024 * 1024 * 1024),
         "system_available_gb": system_memory.available / (1024 * 1024 * 1024),
-        "system_percent": system_memory.percent
+        "system_percent": system_memory.percent,
     }
-    
+
     return memory_stats
 
 
 def log_memory_usage(step: int = 0, prefix: str = "") -> Dict[str, Any]:
     """
     Log current memory usage.
-    
+
     Args:
         step: Current step (for logging)
         prefix: Prefix for log message
-        
+
     Returns:
         Memory usage statistics
     """
     memory_stats = get_memory_usage()
-    
+
     log_message = f"{prefix}Memory usage: "
     log_message += f"RSS: {memory_stats['rss_mb']:.1f}MB, "
     log_message += f"Process: {memory_stats['percent_used']:.1f}%, "
     log_message += f"System: {memory_stats['system_percent']:.1f}%"
-    
+
     logger.info(log_message)
     return memory_stats
 
@@ -12321,54 +12402,52 @@ def log_memory_usage(step: int = 0, prefix: str = "") -> Dict[str, Any]:
 def clean_memory(clean_gpu: bool = True) -> None:
     """
     Clean up memory resources and force garbage collection.
-    
+
     Args:
         clean_gpu: Whether to clear GPU memory as well
     """
     # Clear TensorFlow session
     tf.keras.backend.clear_session()
-    
+
     # Force garbage collection
     gc.collect()
-    
+
     # Additional TensorFlow cleanup
-    if hasattr(tf.keras.backend, 'set_session'):
+    if hasattr(tf.keras.backend, "set_session"):
         tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session())
-    
+
     # Clean GPU memory if requested and available
-    if clean_gpu and tf.config.list_physical_devices('GPU'):
+    if clean_gpu and tf.config.list_physical_devices("GPU"):
         try:
-            for gpu in tf.config.list_physical_devices('GPU'):
+            for gpu in tf.config.list_physical_devices("GPU"):
                 tf.config.experimental.reset_memory_stats(gpu)
         except Exception as e:
             logger.warning(f"Failed to reset GPU memory stats: {e}")
 
 
 def memory_monitoring_decorator(
-    func: Callable,
-    log_prefix: str = "",
-    log_interval: int = 1
+    func: Callable, log_prefix: str = "", log_interval: int = 1
 ) -> Callable:
     """
     Decorator to monitor memory usage during a function execution.
-    
+
     Args:
         func: Function to decorate
         log_prefix: Prefix for log messages
         log_interval: Interval for memory logging (in seconds)
-        
+
     Returns:
         Decorated function
     """
     from functools import wraps
     import time
     import threading
-    
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         stop_monitor = threading.Event()
         memory_stats = []
-        
+
         def monitor_memory():
             start_time = time.time()
             while not stop_monitor.is_set():
@@ -12376,21 +12455,21 @@ def memory_monitoring_decorator(
                     stats = get_memory_usage()
                     stats["time"] = time.time() - start_time
                     memory_stats.append(stats)
-                    
+
                     # Log current memory usage
                     log_memory_usage(step=len(memory_stats), prefix=log_prefix)
-                    
+
                     # Wait for next interval
                     time.sleep(log_interval)
                 except Exception as e:
                     logger.error(f"Error in memory monitoring: {e}")
                     break
-        
+
         # Start monitoring thread
         monitor_thread = threading.Thread(target=monitor_memory)
         monitor_thread.daemon = True
         monitor_thread.start()
-        
+
         try:
             # Call the original function
             result = func(*args, **kwargs)
@@ -12399,13 +12478,13 @@ def memory_monitoring_decorator(
             # Stop monitoring
             stop_monitor.set()
             monitor_thread.join(timeout=1.0)
-            
+
             # Log final memory usage
             final_stats = log_memory_usage(prefix=f"{log_prefix}Final ")
-            
+
             # Clean up resources
             clean_memory()
-    
+
     return wrapper
 
 
@@ -12413,16 +12492,84 @@ def limit_gpu_memory_growth() -> None:
     """
     Configure TensorFlow to limit GPU memory growth to prevent OOM errors.
     """
-    gpus = tf.config.list_physical_devices('GPU')
+    gpus = tf.config.list_physical_devices("GPU")
     if gpus:
         try:
             # Set memory growth for all GPUs
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
-                
+
             logger.info(f"GPU memory growth enabled for {len(gpus)} GPUs")
         except RuntimeError as e:
-            logger.error(f"Error setting GPU memory growth: {e}")```
+            logger.error(f"Error setting GPU memory growth: {e}")
+
+
+def configure_metal_for_stability() -> bool:
+    """
+    Apply Metal-specific optimizations for stability on Apple Silicon.
+
+    Returns:
+        bool: True if Metal optimizations were applied, False otherwise
+    """
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        # Use conservative settings for better stability
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # Reduce TF logging noise
+        os.environ["TF_METAL_DEVICE_FORCE_MEMORY_CACHE"] = (
+            "1"  # Improve memory handling
+        )
+        os.environ["TF_METAL_DEVICE_FORCE_SYNCHRONOUS"] = (
+            "1"  # More stable but potentially slower
+        )
+        os.environ["TF_USE_LEGACY_KERAS"] = "1"  # Use legacy Keras implementation
+        os.environ["TF_METAL_DISABLE_GRAPH_OPTIMIZER"] = (
+            "1"  # Disable problematic optimizer
+        )
+
+        logger.info("Applied Metal-specific stability optimizations")
+        return True
+    return False
+
+
+def optimize_memory_use():
+    """
+    Configure TensorFlow and system for optimal memory usage.
+    Call this function at the beginning of memory-intensive operations.
+    """
+    # Clear session
+    tf.keras.backend.clear_session()
+
+    # Force garbage collection
+    gc.collect()
+
+    # Configure memory growth
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        for gpu in gpus:
+            try:
+                tf.config.experimental.set_memory_growth(gpu, True)
+                logger.info(f"Memory growth enabled for GPU: {gpu.name}")
+            except RuntimeError as e:
+                logger.warning(f"Memory growth setting failed for {gpu.name}: {e}")
+
+    # Apply Metal-specific optimizations
+    metal_optimized = configure_metal_for_stability()
+
+    # For Apple Silicon, limit memory usage if Metal optimizations weren't applied
+    if (
+        not metal_optimized
+        and platform.system() == "Darwin"
+        and platform.machine() == "arm64"
+    ):
+        os.environ["TF_METAL_DEVICE_MEMORY_LIMIT"] = (
+            "0.9"  # Use 90% of available memory
+        )
+        logger.info("Set Metal device memory limit to 90% for Apple Silicon")
+
+    # Log current memory state after optimization
+    log_memory_usage(prefix="Memory after optimization: ")
+
+    return gpus
+```
 
 ---
 
@@ -12781,6 +12928,18 @@ class ReportGenerator:
             models_data: List of dictionaries with model results
             output_path: Path to save the report
         """
+        # Convert string metrics to numeric
+        for model in models_data:
+            for key, value in model["metrics"].items():
+                if isinstance(value, str):
+                    try:
+                        if value.lower() == "n/a":
+                            model["metrics"][key] = 0.0
+                        else:
+                            model["metrics"][key] = float(value)
+                    except (ValueError, TypeError):
+                        model["metrics"][key] = 0.0
+
         if output_path is None:
             output_path = self.paths.trials_dir / "model_comparison.html"
 
@@ -12885,8 +13044,33 @@ class ReportGenerator:
         plt.close()
 
     def _render_comparison_template(self, context):
-        """Render HTML comparison report using Jinja2 template"""
-        # Template implementation for comparison report
+        """
+        Prepare and render the comparison template.
+
+        Args:
+            context: The template context data
+
+        Returns:
+            str: Rendered HTML content
+        """
+        # Prepare models_data to ensure metrics are numeric
+        for model in context["models_data"]:
+            for key, value in model["metrics"].items():
+                # Convert string metrics to numbers
+                if isinstance(value, str):
+                    try:
+                        if value.lower() == "n/a":
+                            model["metrics"][key] = 0.0
+                        else:
+                            model["metrics"][key] = float(value)
+                    except (ValueError, TypeError):
+                        # If conversion fails, set to 0
+                        model["metrics"][key] = 0.0
+                elif value is None:
+                    model["metrics"][key] = 0.0
+
+        # Continue with template rendering...
+        # Existing rendering code...
         template_str = """
         <!DOCTYPE html>
         <html>
@@ -13062,6 +13246,6 @@ def set_global_seeds(seed=42):
 
 ## Summary
 
-Total files: 48
-- Python files: 45
+Total files: 49
+- Python files: 46
 - YAML files: 3

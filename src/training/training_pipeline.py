@@ -86,18 +86,19 @@ def execute_training_pipeline(
     Raises:
         Exception: For any training pipeline errors
     """
-    # Optimize memory at the beginning of training pipeline
-    optimize_memory_use()
-    logger.info("Memory optimized for training pipeline")
 
     # Start timing
     start_time = time.time()
     exit_code = 0
 
     try:
-        # Set up batch trainer
+        # Set up batch trainer first
         batch_trainer = BatchTrainer(config)
         batch_trainer.setup_batch_logging()
+
+        # Now optimize memory and log it immediately after
+        optimize_memory_use()
+        batch_trainer.batch_logger.log_info("Memory optimized for training pipeline")
 
         # Get models to train
         models_to_train = config_manager.get_models_to_train()
