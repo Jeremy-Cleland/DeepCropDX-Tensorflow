@@ -1,187 +1,230 @@
-# models/model_factory.py
+"""
+Model factory with support for standard and attention-enhanced models.
+"""
+
 import tensorflow as tf
+from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, BatchNormalization
 
-from tensorflow.keras.applications import (
-    DenseNet121,
-    DenseNet169,
-    DenseNet201,
-    ResNet50,
-    ResNet101,
-    ResNet152,
-    EfficientNetB0,
-    EfficientNetB1,
-    EfficientNetB2,
-    EfficientNetB3,
-    EfficientNetB4,
-    EfficientNetB5,
-    EfficientNetB6,
-    EfficientNetB7,
-    MobileNet,
-    MobileNetV2,
-    MobileNetV3Large,
-    MobileNetV3Small,
-    InceptionV3,
-    InceptionResNetV2,
-    Xception,
-    VGG16,
-    VGG19,
+from src.config.config_loader import ConfigLoader
+from src.models.attention import (
+    squeeze_and_excitation_block,
+    cbam_block,
+    spatial_attention_block,
 )
-
-from config.config_loader import ConfigLoader
 
 
 class ModelFactory:
+    """A factory for creating standard and attention-enhanced models."""
+    
     def __init__(self):
+        """Initialize the model factory with supported models and configurations."""
         self.config_loader = ConfigLoader()
-        self.models_dict = {
-            # ConvNeXt models
-            "ConvNeXtBase": self._create_convnext_base,
-            "ConvNeXtLarge": self._create_convnext_large,
-            "ConvNeXtSmall": self._create_convnext_small,
-            "ConvNeXtTiny": self._create_convnext_tiny,
-            "ConvNeXtXLarge": self._create_convnext_xlarge,
-            # DenseNet models
-            "DenseNet121": DenseNet121,
-            "DenseNet169": DenseNet169,
-            "DenseNet201": DenseNet201,
-            # EfficientNet models
-            "EfficientNetB0": EfficientNetB0,
-            "EfficientNetB1": EfficientNetB1,
-            "EfficientNetB2": EfficientNetB2,
-            "EfficientNetB3": EfficientNetB3,
-            "EfficientNetB4": EfficientNetB4,
-            "EfficientNetB5": EfficientNetB5,
-            "EfficientNetB6": EfficientNetB6,
-            "EfficientNetB7": EfficientNetB7,
-            # ResNet models
-            "ResNet50": ResNet50,
-            "ResNet101": ResNet101,
-            "ResNet152": ResNet152,
-            "ResNet50V2": tf.keras.applications.ResNet50V2,
-            "ResNet101V2": tf.keras.applications.ResNet101V2,
-            "ResNet152V2": tf.keras.applications.ResNet152V2,
-            # MobileNet models
-            "MobileNet": MobileNet,
-            "MobileNetV2": MobileNetV2,
-            "MobileNetV3Large": MobileNetV3Large,
-            "MobileNetV3Small": MobileNetV3Small,
+        
+        # Dictionary of supported base models
+        self.base_models = {
+            # EfficientNet family
+            "EfficientNetB0": tf.keras.applications.EfficientNetB0,
+            "EfficientNetB1": tf.keras.applications.EfficientNetB1,
+            "EfficientNetB2": tf.keras.applications.EfficientNetB2,
+            
+            # ResNet family
+            "ResNet50": tf.keras.applications.ResNet50,
+            "ResNet101": tf.keras.applications.ResNet101,
+            
+            # MobileNet family
+            "MobileNetV2": tf.keras.applications.MobileNetV2,
+            "MobileNetV3Small": tf.keras.applications.MobileNetV3Small,
+            "MobileNetV3Large": tf.keras.applications.MobileNetV3Large,
+            
             # Others
-            "InceptionV3": InceptionV3,
-            "InceptionResNetV2": InceptionResNetV2,
-            "Xception": Xception,
-            "VGG16": VGG16,
-            "VGG19": VGG19,
+            "DenseNet121": tf.keras.applications.DenseNet121,
+            "Xception": tf.keras.applications.Xception,
         }
-
-    def get_model(self, model_name, num_classes, input_shape=None):
+        
+        # Dictionary of attention mechanisms
+        self.attention_types = {
+            "se": squeeze_and_excitation_block,
+            "cbam": cbam_block,
+            "spatial": spatial_attention_block,
+        }
+    
+    def create_model(self, model_name: str, num_classes: int, input_shape: tuple = (224, 224, 3), 
+                     attention_type: str = None, dropout_rate: float = 0.3, 
+                     freeze_layers: int = 0) -> tf.keras.Model:
         """
-        Create a model with the specified name and configuration
+        Create a model with optional attention mechanism.
+        
+        Args:
+            model_name: Name of the base model
+            num_classes: Number of output classes
+            input_shape: Input shape for the model (height, width, channels)
+            attention_type: Type of attention to add (None, 'se', 'cbam', 'spatial')
+            dropout_rate: Dropout rate for the classification head
+            freeze_layers: Number of layers to freeze for transfer learning
+        
+        Returns:
+            A configured Keras model
+            
+        Raises:
+            ValueError: If model_name or attention_type are not supported
+            ImportError: If there's an issue importing the base model
+            RuntimeError: If there's an error during model creation
         """
-        if model_name not in self.models_dict:
-            raise ValueError(
-                f"Model {model_name} not supported. Available models: {', '.join(self.models_dict.keys())}"
+        # Check if model is supported
+        if model_name not in self.base_models:
+            raise ValueError(f"Model '{model_name}' not supported. Available models: "
+                            f"{', '.join(sorted(self.base_models.keys()))}")
+        
+        # Check if attention type is supported
+        if attention_type and attention_type not in self.attention_types:
+            raise ValueError(f"Attention type '{attention_type}' not supported. Available types: "
+                           f"{', '.join(sorted(self.attention_types.keys()))}, or None")
+        
+        print(f"Creating {model_name} model...")
+        
+        try:
+            # Create base model
+            base_model = self.base_models[model_name](
+                include_top=False,
+                weights="imagenet",
+                input_shape=input_shape,
+                pooling="avg"
             )
-
+            print(f"Base model created successfully")
+            
+        except ImportError as e:
+            error_msg = f"Failed to import {model_name}: {str(e)}. Make sure TensorFlow version supports this model."
+            print(error_msg)
+            raise ImportError(error_msg) from e
+            
+        except Exception as e:
+            error_msg = f"Error initializing {model_name} base model: {str(e)}"
+            print(error_msg)
+            raise RuntimeError(error_msg) from e
+            
+        try:
+            # Freeze layers if specified
+            if freeze_layers > 0:
+                for layer in base_model.layers[:freeze_layers]:
+                    layer.trainable = False
+                print(f"Froze {freeze_layers} layers for fine-tuning")
+            
+            # Get output from base model
+            x = base_model.output
+            
+            # Apply attention if specified
+            if attention_type:
+                attention_func = self.attention_types[attention_type]
+                print(f"Adding {attention_type} attention mechanism")
+                x = attention_func(x)
+            
+            # Add classification head
+            if dropout_rate > 0:
+                x = Dropout(dropout_rate)(x)
+                print(f"Added dropout with rate {dropout_rate}")
+                
+            # Final layer
+            outputs = Dense(num_classes, activation="softmax")(x)
+            
+            # Create the model
+            model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
+            print(f"Final model created with {len(model.layers)} layers")
+            
+            return model
+            
+        except Exception as e:
+            error_msg = f"Error assembling model architecture: {str(e)}"
+            print(error_msg)
+            raise RuntimeError(error_msg) from e
+    
+    def get_model_from_config(self, model_name: str, num_classes: int) -> tf.keras.Model:
+        """
+        Create a model using configuration from config files.
+        
+        Args:
+            model_name: Name of the model
+            num_classes: Number of output classes
+            
+        Returns:
+            A configured Keras model
+            
+        Raises:
+            ValueError: If the model config can't be found or is invalid
+            RuntimeError: If there's an error creating the model
+        """
         # Load model-specific configuration
         try:
             model_config = self.config_loader.get_model_config(model_name)
+            if not model_config:
+                raise ValueError(f"No configuration found for model {model_name}")
+                
             config = model_config.get(model_name, {})
-        except Exception as e:
-            print(
-                f"Warning: Could not load config for {model_name}: {e}. Using defaults."
-            )
+            if not config:
+                raise ValueError(f"Empty configuration for model {model_name}")
+                
+        except ValueError as e:
+            print(f"Warning: {str(e)}. Using defaults.")
             config = {}
-
-        # Use provided input shape or default from config
-        if input_shape is None:
-            input_shape = config.get("input_shape", (224, 224, 3))
-
-        # Get base model constructor
-        model_constructor = self.models_dict[model_name]
-
-        print(f"Creating {model_name} model...")
-        # Create the base model
-        if callable(model_constructor):
-            try:
-                base_model = model_constructor(
-                    include_top=config.get("include_top", False),
-                    weights=config.get("weights", "imagenet"),
-                    input_shape=input_shape,
-                    pooling=config.get("pooling", "avg"),
-                )
-                print(f"Base model created successfully")
-            except Exception as e:
-                print(f"Error creating base model: {e}")
-                raise
-        else:
-            # If it's a method, call it
-            base_model = model_constructor()
-
-        # Freeze layers if fine-tuning is enabled
-        if config.get("fine_tuning", {}).get("enabled", False):
-            freeze_layers = config["fine_tuning"].get("freeze_layers", 0)
-            for layer in base_model.layers[:freeze_layers]:
-                layer.trainable = False
-            print(f"Froze {freeze_layers} layers for fine-tuning")
-
-        # Build the full model with classification head
-        x = base_model.output
-
-        # Add dropout if specified
-        if config.get("dropout_rate", 0) > 0:
-            dropout_rate = config["dropout_rate"]
-            x = tf.keras.layers.Dropout(dropout_rate)(x)
-            print(f"Added dropout with rate {dropout_rate}")
-
-        # Add classification layer
-        outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
-
-        # Create and return the model
-        model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
-        print(f"Final model created with {len(model.layers)} layers")
-
-        return model
-
-    # ConvNeXt models require special handling since they might not be
-    # directly available in tf.keras.applications
-    def _create_convnext_base(self, **kwargs):
-        # Implementation depends on TensorFlow version
+        except Exception as e:
+            print(f"Warning: Could not load config for {model_name}: {str(e)}. Using defaults.")
+            config = {}
+        
+        # Extract configuration parameters with type checking
         try:
-            return tf.keras.applications.convnext.ConvNeXtBase(**kwargs)
-        except:
-            # Fallback implementation if not available
-            raise NotImplementedError(
-                "ConvNeXtBase not available in this TensorFlow version"
+            # Get input shape
+            input_shape_config = config.get("input_shape", (224, 224, 3))
+            if isinstance(input_shape_config, list):
+                input_shape = tuple(input_shape_config)
+            else:
+                input_shape = input_shape_config
+                
+            # Get attention type
+            attention_type = config.get("attention_type", None)
+            
+            # Get dropout rate
+            dropout_rate = float(config.get("dropout_rate", 0.3))
+            
+            # Get freeze layers
+            fine_tuning_config = config.get("fine_tuning", {})
+            if not isinstance(fine_tuning_config, dict):
+                fine_tuning_config = {}
+            freeze_layers = int(fine_tuning_config.get("freeze_layers", 0))
+            
+            # Get base model name (without attention suffix)
+            base_model_name = model_name
+            for suffix in ["_SE", "_CBAM", "_Attention"]:
+                if model_name.endswith(suffix):
+                    base_model_name = model_name.split(suffix)[0]
+                    # If no attention_type specified in config, infer from suffix
+                    if not attention_type:
+                        if suffix == "_SE":
+                            attention_type = "se"
+                        elif suffix == "_CBAM":
+                            attention_type = "cbam"
+                        elif suffix == "_Attention":
+                            attention_type = "spatial"
+                    break
+            
+            print(f"Loaded configuration for {model_name}: input_shape={input_shape}, "
+                  f"attention_type={attention_type}, dropout_rate={dropout_rate}, "
+                  f"freeze_layers={freeze_layers}")
+                  
+            # Create and return the model
+            return self.create_model(
+                model_name=base_model_name,
+                num_classes=num_classes,
+                input_shape=input_shape,
+                attention_type=attention_type,
+                dropout_rate=dropout_rate,
+                freeze_layers=freeze_layers
             )
-
-    def _create_convnext_large(self, **kwargs):
-        try:
-            return tf.keras.applications.convnext.ConvNeXtLarge(**kwargs)
-        except:
-            raise NotImplementedError(
-                "ConvNeXtLarge not available in this TensorFlow version"
-            )
-
-    def _create_convnext_small(self, **kwargs):
-        try:
-            return tf.keras.applications.convnext.ConvNeXtSmall(**kwargs)
-        except:
-            raise NotImplementedError(
-                "ConvNeXtSmall not available in this TensorFlow version"
-            )
-
-    def _create_convnext_tiny(self, **kwargs):
-        try:
-            return tf.keras.applications.convnext.ConvNeXtTiny(**kwargs)
-        except:
-            raise NotImplementedError(
-                "ConvNeXtTiny not available in this TensorFlow version"
-            )
-
-    def _create_convnext_xlarge(self, **kwargs):
-        try:
-            return tf.keras.applications.convnext.ConvNeXtXLarge(**kwargs)
-        except:
-            raise NotImplementedError(
-                "ConvNeXtXLarge not available in this TensorFlow version"
-            )
+            
+        except (ValueError, TypeError) as e:
+            error_msg = f"Invalid configuration for {model_name}: {str(e)}"
+            print(error_msg)
+            raise ValueError(error_msg) from e
+            
+        except Exception as e:
+            error_msg = f"Error creating model from config: {str(e)}"
+            print(error_msg)
+            raise RuntimeError(error_msg) from e

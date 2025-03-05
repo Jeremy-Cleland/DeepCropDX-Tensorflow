@@ -34,4 +34,9 @@ notebooks/.ipynb_checkpoints/
 # Model Checkpoints
 *.hdf5
 
+/data
 
+
+# Models
+*.pth
+*.h5

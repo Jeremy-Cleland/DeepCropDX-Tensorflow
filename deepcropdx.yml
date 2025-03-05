@@ -4,7 +4,7 @@ channels:
   - apple
   - defaults
 dependencies:
-  - python=3.10 
+  - python=3.10
   - pip
   - numpy
   - pandas
@@ -50,20 +50,22 @@ dependencies:
   - jinja2
   - optuna
   - pyyaml
+  - albumentations
+  - imagehash
+  - tensorboard
+  - tensorflow-probability
+  - absl-py
+  - opt-einsum
+  - rich
+  - termcolor
+  - tensorflow-datasets
+  - gin-config
+  - opencv
+  - pymc
+  - keras
   - pip:
       - tensorflow-macos
       - tensorflow-metal
-      - tensorboard
       - tensorflow-addons
-      - tensorflow-probability
-      - absl-py
-      - opt-einsum
-      - rich
-      - termcolor
-      - tfds-nightly
-      - gin-config
-      - opencv-python-headless
-      - np
-      - pymc3
       - pgmpy
-      - keras
+      - asitop

@@ -1,11 +1,10 @@
-# src/config/config.yaml (additions for the new features)
+# src/config/config.yaml
 
 project:
   name: Plant Disease Detection
   description: Deep learning models for detecting diseases in plants
   version: 1.0.0
 
-# Add global random seed for reproducibility
 seed: 42
 
 paths:
@@ -29,9 +28,16 @@ training:
   validation_split: 0.2
   test_split: 0.1
   progress_bar: true
-
+  class_weight: "balanced"  # Added this line to enable class weighting
   clip_norm: 1.0 
   clip_value: null
+  # Learning rate scheduler (optional, disabled by default)
+  lr_scheduler:
+    enabled: true
+    type: reduce_on_plateau
+    factor: 0.5
+    patience: 5
+    min_lr: 0.0001
 
 hardware:
   use_metal: true
@@ -52,6 +58,18 @@ reporting:
   save_precision_recall: true
   generate_html_report: true
 
+# Add these settings under a new 'data' section in your config.yaml
+# Enhanced data augmentation configuration - add to config.yaml
+
+# Dataset configuration
+data:
+  image_size: [224, 224]    # Default image dimensions for preprocessing
+  save_splits: true         # Whether to save dataset splits to disk
+  use_saved_splits: true   # Whether to use saved splits when available
+  splits_dir: "splits"      # Directory name for storing splits
+  cache_parsed_images: false  # Whether to cache parsed images in memory
+
+
 data_augmentation:
   enabled: true
   rotation_range: 20
@@ -62,6 +80,26 @@ data_augmentation:
   horizontal_flip: true
   vertical_flip: false
   fill_mode: "nearest"
+  
+  # New enhanced augmentation settings
+  color_jitter: true        # Enable color space augmentations
+  gaussian_noise: true      # Add random Gaussian noise
+  noise_stddev: 0.01        # Standard deviation for Gaussian noise
+  random_erasing: true      # Enable random erasing (occlusion)
+  erasing_prob: 0.1         # Probability of applying random erasing
+  perspective_transform: true  # Enable perspective transformations
+  perspective_delta: 0.1    # Max distortion for perspective transform
+  
+  # Batch-level augmentations
+  batch_augmentations: true  # Enable batch-level augmentations
+  mixup: true               # Enable MixUp augmentation
+  mixup_alpha: 0.2          # Alpha parameter for MixUp
+  cutmix: true              # Enable CutMix augmentation
+  cutmix_alpha: 1.0         # Alpha parameter for CutMix
+  
+  # Validation transforms
+  validation_augmentation: true    # Enable validation-time processing
+  validation_resize_factor: 1.14   # Resize factor before center crop
 
 # Add data validation settings
 data_validation:
@@ -71,5 +109,8 @@ data_validation:
   min_image_dimensions: [32, 32]
   check_corrupt_images: true
   check_duplicates: false
-  max_workers: 4
-  max_images_to_check: 1000 
+  max_workers: 16
+  max_images_to_check: 10000
+
+
+  

@@ -17,7 +17,7 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
-from config.config import get_paths
+from src.config.config import get_paths
 
 
 class Logger:
@@ -84,7 +84,9 @@ class Logger:
         if self.config.get("logging", {}).get("tensorboard", True):
             tensorboard_dir = Path(self.log_dir / "tensorboard")
             os.makedirs(tensorboard_dir, exist_ok=True)
-            self.tensorboard_writer = tf.summary.create_file_writer(tensorboard_dir)
+            self.tensorboard_writer = tf.summary.create_file_writer(
+                str(tensorboard_dir)
+            )
 
         # Initialize metrics tracking
         self.metrics = {}

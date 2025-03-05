@@ -2,7 +2,7 @@ import os
 import yaml
 from pathlib import Path
 
-from config.config import get_paths
+from src.config.config import get_paths
 
 
 class ConfigLoader:

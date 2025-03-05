@@ -1,0 +1,293 @@
+# Ideal models for plant disease detection
+
+MobileNet:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.2
+  fine_tuning:
+    enabled: true
+    freeze_layers: 50
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+MobileNetV2:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.2
+  fine_tuning:
+    enabled: true
+    freeze_layers: 80
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+MobileNetV3Large:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.2
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+MobileNetV3Small:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.1
+  fine_tuning:
+    enabled: true
+    freeze_layers: 50
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+EfficientNetB0:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.2
+  fine_tuning:
+    enabled: true
+    freeze_layers: 70
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+EfficientNetB1:
+  input_shape: [240, 240, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+ResNet50:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+ResNet50V2:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+Xception:
+  input_shape: [299, 299, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.4
+  fine_tuning:
+    enabled: true
+    freeze_layers: 120
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+DenseNet121:
+  input_shape: [224, 224, 3]
+  include_top: false 
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.2
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: false
+
+
+EfficientNetB0_SE:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  attention_type: "se"
+  fine_tuning:
+    enabled: true
+    freeze_layers: 70
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0005
+    batch_size: 32
+    optimizer: adam
+
+EfficientNetB1_SE:
+  input_shape: [240, 240, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  attention_type: "se"
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0003
+    batch_size: 28
+    optimizer: adam
+
+EfficientNetB2_SE:
+  input_shape: [260, 260, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  attention_type: "se"
+  fine_tuning:
+    enabled: true
+    freeze_layers: 120
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0002
+    batch_size: 24
+    optimizer: adam
+
+ResNet50_CBAM:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  attention_type: "cbam"
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0003
+    batch_size: 32
+    optimizer: adam
+
+ResNet101_CBAM:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.3
+  attention_type: "cbam"
+  fine_tuning:
+    enabled: true
+    freeze_layers: 120
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0002
+    batch_size: 24
+    optimizer: adam
+
+AttentionEfficientNetB0:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.4
+  fine_tuning:
+    enabled: true
+    freeze_layers: 60
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0005
+    batch_size: 32
+    optimizer: adam
+
+AttentionEfficientNetB1:
+  input_shape: [240, 240, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.4
+  fine_tuning:
+    enabled: true
+    freeze_layers: 100
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0003
+    batch_size: 24
+    optimizer: adam
+
+AttentionResNet50:
+  input_shape: [224, 224, 3]
+  include_top: false
+  weights: "imagenet"
+  pooling: avg
+  dropout_rate: 0.4
+  fine_tuning:
+    enabled: true
+    freeze_layers: 80
+    progressive: true
+    finetuning_epochs: 5
+  preprocessing:
+    rescale: 1./255
+    validation_augmentation: true
+  hyperparameters:
+    learning_rate: 0.0003
+    batch_size: 32
+    optimizer: adam
+    discriminative_lr:
+      enabled: true
+      base_lr: 0.0003
+      factor: 0.3

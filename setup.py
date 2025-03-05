@@ -4,8 +4,8 @@ setup(
     name="deepcropdx",
     version="1.0.0",
     description="Deep Learning Models for Plant Disease Detection",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="Jeremy Cleland",
+    author_email="jeremy.cleland@icloud.com",
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
@@ -22,9 +22,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "deepcropdx-train=src.scripts.train:main",
-            "deepcropdx-evaluate=src.scripts.evaluate:main",
-            "deepcropdx-registry=src.scripts.registry_cli:main",
+            "deepcropdx-batch=src.main:main",
         ],
     },
     python_requires=">=3.8",
