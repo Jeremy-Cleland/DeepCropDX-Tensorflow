@@ -1,6 +1,6 @@
 # DeepCropDX: Advanced Plant Disease Detection System
 
-![DeepCropDX](../.github/images/deepcropdx.png)
+![DeepCropDX](.github/assets/crop_disease_detection_01.jpg)
 
 [![GitHub](https://img.shields.io/badge/GitHub-DeepCropDX-blue.svg)](
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16+-orange.svg)](https://www.tensorflow.org/)
