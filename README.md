@@ -1,4 +1,13 @@
-# Plant Disease Detection Project - Restructured
+
+![Crop Disease Detection Banner](.github/assets/crop_disease_detection_01.jpg)
+
+# **DeepCropDX | Advanced Plant Disease Detection System**
+
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16+-orange.svg)](https://www.tensorflow.org/)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+DeepCropDX is a comprehensive deep learning pipeline for accurately diagnosing plant diseases from images. The system combines state-of-the-art neural network architectures (DenseNet, EfficientNet, MobileNet, ResNet, and Xception) with transfer learning to deliver highly accurate disease detection for agricultural applications.
 
 ## Directory Structure
 
