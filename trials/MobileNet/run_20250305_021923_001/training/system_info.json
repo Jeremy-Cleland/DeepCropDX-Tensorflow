@@ -1,0 +1,17 @@
+{
+    "platform": "macOS-15.3.1-arm64-arm-64bit",
+    "python_version": "3.10.16",
+    "processor": "arm",
+    "tensorflow_version": "2.16.2",
+    "timestamp": "2025-03-05T02:19:23.782838",
+    "logger_type": "training",
+    "cpu_count": 16,
+    "logical_cpus": 16,
+    "ram_gb": 48.0,
+    "gpu_available": true,
+    "metal_available": true,
+    "devices": [
+        "GPU 0: /physical_device:GPU:0",
+        "Metal: Apple Silicon"
+    ]
+}

@@ -12,6 +12,7 @@ from src.utils.logger import Logger
 from src.config.config import get_paths
 from src.model_registry.registry_manager import ModelRegistryManager
 from src.utils.seed_utils import set_global_seeds
+from src.training.learning_rate_scheduler import get_warmup_scheduler
 
 
 class ProgressBarCallback(tf.keras.callbacks.Callback):
@@ -380,9 +381,21 @@ class Trainer:
                 f"Early stopping enabled with patience {patience}, monitoring {monitor}"
             )
 
-        # Learning rate scheduler if enabled
+        # Learning rate scheduler if enabled (including new warmup schedulers)
         lr_scheduler_config = training_config.get("lr_scheduler", {})
-        if lr_scheduler_config.get("enabled", False):
+        lr_schedule_config = training_config.get("lr_schedule", {})
+        
+        # Check for the new warmup scheduler
+        if lr_schedule_config.get("enabled", False):
+            # Create a warmup scheduler using the new implementation
+            warmup_scheduler = get_warmup_scheduler(self.config)
+            if warmup_scheduler:
+                callbacks.append(warmup_scheduler)
+                scheduler_type = lr_schedule_config.get("type", "warmup_cosine")
+                self.train_logger.log_info(f"Using advanced scheduler: {scheduler_type}")
+        
+        # Legacy scheduler support
+        elif lr_scheduler_config.get("enabled", False):
             lr_scheduler_type = lr_scheduler_config.get("type", "reduce_on_plateau")
 
             if lr_scheduler_type == "reduce_on_plateau":

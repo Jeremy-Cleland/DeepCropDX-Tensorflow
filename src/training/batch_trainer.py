@@ -4,6 +4,7 @@ This is extracted from main.py to separate batch training logic from the command
 """
 
 import time
+import gc
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
@@ -14,6 +15,7 @@ from src.config.config import get_paths
 from src.utils.logger import Logger
 from src.utils.report_generator import ReportGenerator
 from src.training.model_trainer import train_model
+from src.utils.memory_utils import clean_memory, log_memory_usage, memory_monitoring_decorator
 
 
 class BatchTrainer:
@@ -104,10 +106,12 @@ class BatchTrainer:
 
             model_start_time = time.time()
             
-            # Clear memory before training each model
-            tf.keras.backend.clear_session()
-            import gc
-            gc.collect()
+            # Clean memory before training each model
+            clean_memory(clean_gpu=True)
+            
+            # Log memory usage before training
+            self.batch_logger.log_info(f"Starting training for model: {model_name}")
+            log_memory_usage(prefix=f"Before training {model_name}: ")
             
             success, metrics = train_model(
                 model_name,
@@ -122,6 +126,9 @@ class BatchTrainer:
                 resume=resume,
                 attention_type=attention_type,
             )
+            
+            # Log memory usage after training
+            log_memory_usage(prefix=f"After training {model_name}: ")
             
             model_time = time.time() - model_start_time
 
@@ -223,3 +230,36 @@ class BatchTrainer:
 
         # Save final batch metrics
         self.batch_logger.save_final_metrics(batch_metrics)
+        
+    def cleanup_resources(self) -> None:
+        """
+        Clean up resources after batch training to prevent memory leaks.
+        This should be called after completing or interrupting batch training.
+        """
+        # Log memory stats before cleanup
+        self.batch_logger.log_info("Starting resource cleanup...")
+        before_cleanup = log_memory_usage(prefix="Before cleanup: ")
+        
+        # Clean TensorFlow session and force garbage collection
+        clean_memory(clean_gpu=True)
+        
+        # Release large objects
+        if hasattr(self, 'results') and self.results:
+            # Keep basic info but release any large data
+            for model_name in self.results:
+                if 'model' in self.results[model_name]:
+                    del self.results[model_name]['model']
+                if 'history' in self.results[model_name]:
+                    # Retain just the final epoch values
+                    history = self.results[model_name]['history']
+                    self.results[model_name]['history'] = {k: [v[-1]] for k, v in history.items() if isinstance(v, list)}
+        
+        # Run another garbage collection pass
+        gc.collect()
+        
+        # Log memory stats after cleanup
+        after_cleanup = log_memory_usage(prefix="After cleanup: ")
+        
+        # Calculate memory freed
+        memory_freed = before_cleanup["rss_mb"] - after_cleanup["rss_mb"]
+        self.batch_logger.log_info(f"Cleanup complete. Memory freed: {memory_freed:.1f}MB")

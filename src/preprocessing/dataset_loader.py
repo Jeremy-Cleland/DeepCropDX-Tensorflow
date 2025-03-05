@@ -380,3 +380,34 @@ class DatasetLoader:
             "val": val_indices.tolist(),
             "test": test_indices.tolist()
         }
+        
+    def get_class_weights(self, labels: List[int], indices: List[int]) -> Dict[int, float]:
+        """Calculate class weights for imbalanced datasets.
+        
+        Args:
+            labels: List of all labels
+            indices: List of indices to consider (e.g., training indices)
+            
+        Returns:
+            Dictionary mapping class indices to weights
+        """
+        # Extract the labels for the given indices
+        subset_labels = [labels[i] for i in indices]
+        
+        # Count classes
+        class_counts = {}
+        for label in subset_labels:
+            if label not in class_counts:
+                class_counts[label] = 0
+            class_counts[label] += 1
+        
+        # Calculate weights (inversely proportional to frequency)
+        total = len(subset_labels)
+        n_classes = len(class_counts)
+        
+        # Use balanced formula: total_samples / (n_classes * class_count)
+        weights = {}
+        for label, count in class_counts.items():
+            weights[label] = total / (n_classes * count) if count > 0 else 1.0
+        
+        return weights

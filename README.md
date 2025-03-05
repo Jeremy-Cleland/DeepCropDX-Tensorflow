@@ -15,27 +15,40 @@ DeepCropDX is a comprehensive deep learning pipeline for accurately diagnosing p
 root/
 ├── src/                        # All source code
 │   ├── config/                 # Configuration management
-│   │   ├── config.py           # New path management system
+│   │   ├── config.py           # Path management system
 │   │   ├── config_loader.py    # Load YAML configs
+│   │   ├── config_manager.py   # Manage config and CLI args
 │   │   ├── model_configs/      # Model-specific configurations
 │   │   │   └── models.yaml     # Centralized model configs
 │   ├── evaluation/             # Evaluation utilities
 │   │   ├── metrics.py          # Metrics calculation
 │   │   └── visualization.py    # Visualization utilities
 │   ├── models/                 # Model definitions
-│   │   └── model_factory.py    # Model creation factory
+│   │   ├── model_factory.py    # Basic model creation factory
+│   │   ├── model_factory_new.py # Enhanced model factory
+│   │   ├── model_optimizer.py  # Model quantization and pruning
+│   │   └── advanced_architectures.py # Modern model architectures
 │   ├── preprocessing/          # Data preprocessing
-│   │   └── data_loader.py      # Data loading and preprocessing
+│   │   ├── data_loader.py      # Basic data loading
+│   │   ├── data_loader_new.py  # Enhanced data loading
+│   │   ├── data_transformations.py # Advanced data augmentations
+│   │   └── dataset_pipeline.py # Optimized data pipeline
 │   ├── scripts/                # Executable scripts
 │   │   ├── train.py            # Training script
 │   │   ├── evaluate.py         # Evaluation script
 │   │   └── compare_models.py   # Model comparison script
 │   ├── training/               # Training utilities
-│   │   └── trainer.py          # Model trainer with tqdm
+│   │   ├── trainer.py          # Model trainer
+│   │   ├── batch_trainer.py    # Batch training capabilities
+│   │   ├── training_pipeline.py # Training orchestration
+│   │   └── learning_rate_scheduler.py # Advanced LR scheduling
 │   ├── utils/                  # Utility functions
 │   │   ├── logger.py           # Logging utilities
-│   │   └── report_generator.py # Report generation
-│   └── main.py                 # Main entry point
+│   │   ├── report_generator.py # Report generation
+│   │   ├── cli_utils.py        # CLI argument handling
+│   │   ├── error_handling.py   # Error handling utilities
+│   │   └── memory_utils.py     # Memory management utilities
+│   └── main.py                 # Main entry point (simplified)
 ├── data/                       # Data storage
 │   ├── raw/                    # Raw data
 │   ├── processed/              # Processed data
@@ -56,35 +69,51 @@ root/
 │   │           ├── metrics.json  # Evaluation metrics
 │   │           └── plots/      # Evaluation plots
 │   └── ModelName2/             # Another model's results
+├── docs/                       # Documentation
+│   └── optimization.md         # Documentation for optimization features
+├── config/                     # Configuration examples
+│   └── examples/               
+│       └── lr_schedule_config.yaml # Example LR schedule config
 ├── logs/                       # General logs
 └── restructure_project.py      # Script to restructure the project
 ```
 
 ## Key Improvements
 
-1. **Centralized Path Management**:
-   - Created `config.py` with `ProjectPaths` class to manage all project paths
-   - All modules use a singleton path instance for consistency
-   - Directories are automatically created when needed
+1. **Modular Architecture**:
+   - Simplified main.py by separating it into focused modules
+   - Clear separation of concerns between CLI, training, and reporting
+   - Improved maintainability and testability
 
-2. **Organized Trial Results**:
-   - Each model's training runs are stored in separate directories
-   - Organized structure for training and evaluation artifacts
-   - Timestamped run IDs to track experiments
+2. **Enhanced Error Handling**:
+   - Comprehensive error handling throughout the codebase
+   - Custom exception types for specific error scenarios
+   - Error recovery with retry capabilities
+   - Detailed error reporting and logging
 
-3. **Progress Tracking**:
-   - Added tqdm progress bars for training, evaluation, and data loading
-   - Better visibility into long-running operations
+3. **Memory Management**:
+   - Advanced memory cleanup between model training runs
+   - Memory usage monitoring and reporting
+   - GPU memory optimization for efficient batch training
+   - Prevention of memory leaks during long training sessions
 
-4. **Enhanced Main Script**:
-   - Support for running one model, multiple models, or all models
-   - Command-line arguments for flexibility
-   - Improved error handling and reporting
+4. **Advanced Model Features**:
+   - Support for model quantization (post-training and during-training)
+   - Model pruning capabilities for smaller deployments
+   - Learning rate warmup scheduling for better convergence
+   - Support for newer model architectures (EfficientNetV2, ConvNeXt, ViT)
 
-5. **Evaluation Enhancements**:
-   - Comprehensive metrics calculation
-   - Rich visualizations including confusion matrices, ROC curves, etc.
-   - HTML reports for easier interpretation
+5. **Optimized Data Pipeline**:
+   - Refactored data loading to separate concerns
+   - Enhanced performance with prefetching and parallel processing
+   - Extensive data augmentation options
+   - Improved memory efficiency during data processing
+
+6. **Comprehensive Documentation**:
+   - Enhanced type hints and detailed docstrings
+   - Documentation for optimization techniques
+   - Example configuration files
+   - Improved code organization
 
 ## Using the New Structure
 
@@ -99,29 +128,45 @@ root/
 
    # Train all models defined in the configuration
    python -m src.main --all_models --data_dir data/processed
+   
+   # Use advanced learning rate scheduling
+   python -m src.main --model ResNet50 --config config/examples/lr_schedule_config.yaml
+   
+   # Print hardware information and exit
+   python -m src.main --hardware_info
    ```
 
-2. **Running individual scripts**:
+2. **Using optimization features**:
 
    ```bash
-   # Train a specific model
-   python -m src.scripts.train --model ResNet50 --data_dir data/processed
+   # Enable model quantization
+   python -m src.main --model MobileNetV2 --config config/examples/quantization_config.yaml
 
-   # Evaluate a trained model
-   python -m src.scripts.evaluate --model_path trials/ResNet50/run_20250304_123456_001/ResNet50_final.h5 --data_dir data/test
-
-   # Compare multiple trained models
-   python -m src.scripts.compare_models --models ResNet50 EfficientNetB0 MobileNetV2
+   # Enable model pruning
+   python -m src.main --model ResNet50 --config config/examples/pruning_config.yaml
+   
+   # Combined optimizations
+   python -m src.main --model EfficientNetB0 --config config/examples/optimized_training.yaml
    ```
 
-3. **Restructuring Existing Project**:
+3. **Advanced data pipeline usage**:
 
    ```bash
-   # Dry run to see what would happen
-   python restructure_project.py --dry_run
+   # Use enhanced data loading with memory optimization
+   python -m src.main --model ResNet50 --use_new_data_loader --data_dir data/processed
+   
+   # Enable advanced data augmentations
+   python -m src.main --model MobileNetV2 --advanced_augmentations --data_dir data/processed
+   ```
 
-   # Actual restructuring
-   python restructure_project.py
+4. **Memory management options**:
+
+   ```bash
+   # Enable explicit GPU memory management
+   python -m src.main --model ResNet50 --manage_gpu_memory
+   
+   # Monitor memory usage during training
+   python -m src.main --model ResNet50 --monitor_memory
    ```
 
 ## Next Steps
@@ -130,6 +175,80 @@ root/
 2. Add the `src` directory to your Python path or install as a package
 3. Run a test training to ensure everything works correctly
 4. Consider creating a requirements.txt or updating your environment.yml file
+
+# New Optimization Features
+
+## Overview
+
+The project now includes several advanced optimization features to improve model performance, reduce memory usage, and enhance training efficiency.
+
+## Model Quantization
+
+Model quantization reduces model size and improves inference speed by representing weights with lower precision.
+
+```python
+from src.models.model_optimizer import ModelOptimizer
+
+# Create optimizer
+optimizer = ModelOptimizer(config)
+
+# Apply post-training quantization
+quantized_model = optimizer.apply_quantization(
+    model, 
+    representative_dataset=representative_dataset,
+    method="post_training",
+    quantization_bits=8
+)
+```
+
+## Model Pruning
+
+Pruning removes redundant weights to create sparse models that are smaller and potentially faster.
+
+```python
+from src.models.model_optimizer import ModelOptimizer
+
+# Create optimizer
+optimizer = ModelOptimizer(config)
+
+# Apply pruning during training
+pruning_params = optimizer.setup_pruning(
+    model,
+    target_sparsity=0.5,
+    pruning_schedule="polynomial"
+)
+
+# Get pruning callbacks for training
+pruning_callbacks = optimizer.get_pruning_callbacks()
+```
+
+## Learning Rate Scheduling
+
+Advanced learning rate scheduling for improved training stability and convergence.
+
+```python
+from src.training.learning_rate_scheduler import get_warmup_scheduler
+
+# Get warmup scheduler
+scheduler = get_warmup_scheduler(config)
+
+# Add to training callbacks
+callbacks.append(scheduler)
+```
+
+## Memory Management
+
+Utilities for monitoring and optimizing memory usage during training.
+
+```python
+from src.utils.memory_utils import clean_memory, log_memory_usage
+
+# Log current memory usage
+memory_stats = log_memory_usage(prefix="Before training: ")
+
+# Clean up memory after training
+clean_memory(clean_gpu=True)
+```
 
 # Model Registry System
 
